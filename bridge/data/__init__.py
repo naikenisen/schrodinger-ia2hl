@@ -1,5 +1,4 @@
 import torch
-from .cacheloader import CacheLoader
 
 
 def logit_transform(image: torch.Tensor, lam=1e-6):
