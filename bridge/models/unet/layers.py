@@ -8,11 +8,15 @@ import torch.nn.functional as F
 
 
 # PyTorch 1.7 has SiLU, but we support PyTorch 1.5.
+# Activation : version compatible si PyTorch n'a pas SiLU.
+# Concept : fonction d’activation "douce", souvent utilisée dans les diffusions.
 class SiLU(nn.Module):
     def forward(self, x):
         return x * th.sigmoid(x)
 
-
+# Normalisation : stabilise l’apprentissage.
+# Ici, on force les calculs internes en float32 pour éviter des erreurs numériques.
+class GroupNorm32(nn.GroupNorm):
 class GroupNorm32(nn.GroupNorm):
     def forward(self, x):
         return super().forward(x.float()).type(x.dtype)
@@ -20,7 +24,9 @@ class GroupNorm32(nn.GroupNorm):
 
 def conv_nd(dims, *args, **kwargs):
     """
-    Create a 1D, 2D, or 3D convolution module.
+    Fabrique une couche de convolution 1D / 2D / 3D selon le type de données.
+    Concept :
+    - même code pour images (2D), volumes (3D), signaux (1D)
     """
     if dims == 1:
         return nn.Conv1d(*args, **kwargs)
@@ -33,14 +39,16 @@ def conv_nd(dims, *args, **kwargs):
 
 def linear(*args, **kwargs):
     """
-    Create a linear module.
+    Crée une couche fully-connected (linéaire).
     """
     return nn.Linear(*args, **kwargs)
 
 
 def avg_pool_nd(dims, *args, **kwargs):
     """
-    Create a 1D, 2D, or 3D average pooling module.
+    Pooling moyen 1D / 2D / 3D.
+    Concept :
+    - réduire la taille (downsampling) en gardant une moyenne
     """
     if dims == 1:
         return nn.AvgPool1d(*args, **kwargs)
@@ -53,11 +61,10 @@ def avg_pool_nd(dims, *args, **kwargs):
 
 def update_ema(target_params, source_params, rate=0.99):
     """
-    Update target parameters to be closer to those of source parameters using
-    an exponential moving average.
-    :param target_params: the target parameter sequence.
-    :param source_params: the source parameter sequence.
-    :param rate: the EMA rate (closer to 1 means slower).
+    Exponential Moving Average (EMA) des poids.
+    Concept :
+    - garder une version "lissée" des poids (souvent meilleure en génération)
+    - rate proche de 1 => mise à jour lente (très lissée)
     """
     for targ, src in zip(target_params, source_params):
         targ.detach().mul_(rate).add_(src, alpha=1 - rate)
@@ -65,7 +72,10 @@ def update_ema(target_params, source_params, rate=0.99):
 
 def zero_module(module, active=True):
     """
-    Zero out the parameters of a module and return it.
+    Met les poids du module à 0.
+    Concept :
+    - démarrer certains blocs comme "neutres" au début de l’entraînement
+      (pour stabiliser / contrôler l’impact d’un bloc)
     """
     if active:
         for p in module.parameters():
@@ -75,7 +85,9 @@ def zero_module(module, active=True):
 
 def scale_module(module, scale):
     """
-    Scale the parameters of a module and return it.
+    Multiplie les poids par une constante.
+    Concept :
+    - ajuster l’intensité d’un bloc (utile pour init / stabilité)
     """
     for p in module.parameters():
         p.detach().mul_(scale)
@@ -84,28 +96,28 @@ def scale_module(module, scale):
 
 def mean_flat(tensor):
     """
-    Take the mean over all non-batch dimensions.
+    Moyenne sur toutes les dimensions sauf le batch.
+    Concept :
+    - calculer une moyenne "par exemple" (par image, par élément du batch)
     """
     return tensor.mean(dim=list(range(1, len(tensor.shape))))
 
 
 def normalization(channels):
     """
-    Make a standard normalization layer.
-    :param channels: number of input channels.
-    :return: an nn.Module for normalization.
+    Normalisation standard.
+    Concept :
+    - stabiliser l’apprentissage (éviter explosions/instabilités)
     """
     return GroupNorm32(32, channels)
 
 
 def timestep_embedding(timesteps, dim, max_period=10000):
     """
-    Create sinusoidal timestep embeddings.
-    :param timesteps: a 1-D Tensor of N indices, one per batch element.
-                      These may be fractional.
-    :param dim: the dimension of the output.
-    :param max_period: controls the minimum frequency of the embeddings.
-    :return: an [N x dim] Tensor of positional embeddings.
+    Encode le temps t en vecteur (sin/cos).
+    Concept :
+    - donner au réseau une représentation riche de l’étape de diffusion
+      (comme les positional encodings des Transformers)
     """
     half = dim // 2
     freqs = th.exp(
@@ -120,13 +132,10 @@ def timestep_embedding(timesteps, dim, max_period=10000):
 
 def checkpoint(func, inputs, params, flag):
     """
-    Evaluate a function without caching intermediate activations, allowing for
-    reduced memory at the expense of extra compute in the backward pass.
-    :param func: the function to evaluate.
-    :param inputs: the argument sequence to pass to `func`.
-    :param params: a sequence of parameters `func` depends on but does not
-                   explicitly take as arguments.
-    :param flag: if False, disable gradient checkpointing.
+    Gradient checkpointing.
+    Concept :
+    - économiser de la mémoire pendant l’entraînement
+    - en échange : recalculer certaines choses au backward (plus lent)
     """
     if flag:
         args = tuple(inputs) + tuple(params)
@@ -136,6 +145,7 @@ def checkpoint(func, inputs, params, flag):
 
 
 class CheckpointFunction(th.autograd.Function):
+     # Mécanisme interne pour faire du checkpointing (économie mémoire).
     @staticmethod
     def forward(ctx, run_function, length, *args):
         ctx.run_function = run_function
@@ -146,6 +156,8 @@ class CheckpointFunction(th.autograd.Function):
         return output_tensors
 
     @staticmethod
+    # Recalcule le forward pour pouvoir obtenir les gradients sans stocker
+    # toutes les activations en mémoire.
     def backward(ctx, *output_grads):
         ctx.input_tensors = [x.detach().requires_grad_(True) for x in ctx.input_tensors]
         with th.enable_grad():
@@ -168,9 +180,10 @@ class CheckpointFunction(th.autograd.Function):
 
 class TimestepBlock(nn.Module):
     """
-    Any module where forward() takes timestep embeddings as a second argument.
+    Interface : bloc qui a besoin du temps (embedding) en plus de x.
+    Concept :
+    - certains blocs du UNet doivent être "conditionnés" par l’étape t.
     """
-
     @abstractmethod
     def forward(self, x, emb):
         """
@@ -180,10 +193,10 @@ class TimestepBlock(nn.Module):
 
 class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     """
-    A sequential module that passes timestep embeddings to the children that
-    support it as an extra input.
+    Variante de nn.Sequential qui sait passer 'emb' aux couches qui en ont besoin.
+    Concept :
+    - enchaîner des couches, mais garder la possibilité d'injecter l'information temps
     """
-
     def forward(self, x, emb):
         for layer in self:
             if isinstance(layer, TimestepBlock):
@@ -195,13 +208,11 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
 
 class Upsample(nn.Module):
     """
-    An upsampling layer with an optional convolution.
-    :param channels: channels in the inputs and outputs.
-    :param use_conv: a bool determining if a convolution is applied.
-    :param dims: determines if the signal is 1D, 2D, or 3D. If 3D, then
-                 upsampling occurs in the inner-two dimensions.
+    Agrandit une représentation (upsampling).
+    Concept :
+    - dans UNet, on remonte en résolution pour reconstruire une image détaillée
+    - option : ajouter une convolution après l’agrandissement
     """
-
     def __init__(self, channels, use_conv, dims=2):
         super().__init__()
         self.channels = channels
@@ -225,11 +236,9 @@ class Upsample(nn.Module):
 
 class Downsample(nn.Module):
     """
-    A downsampling layer with an optional convolution.
-    :param channels: channels in the inputs and outputs.
-    :param use_conv: a bool determining if a convolution is applied.
-    :param dims: determines if the signal is 1D, 2D, or 3D. If 3D, then
-                 downsampling occurs in the inner-two dimensions.
+    Réduit la résolution (downsampling).
+    Concept :
+    - dans UNet, on descend en résolution pour capter du contexte global
     """
 
     def __init__(self, channels, use_conv, dims=2):
@@ -247,6 +256,10 @@ class Downsample(nn.Module):
         assert x.shape[1] == self.channels
         return self.op(x)
 
+"""
+⚠️ Note : dans Downsample, la ligne self.op = avg_pool_nd(stride) semble bizarre : 
+normalement avg_pool_nd attend dims en premier. C’est peut-être un bug/copie.
+"""
 
 class ResBlock(TimestepBlock):
     """
