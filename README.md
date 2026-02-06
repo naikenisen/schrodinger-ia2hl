@@ -1,19 +1,18 @@
-# Diffusion Schr&ouml;dinger Bridge with Applications to Score-Based Generative Modeling
+# Pont de Schrödinger Diffusif avec Applications à la Modélisation Générative basée sur le Score
 
-This repository contains the implementation for the paper Diffusion
-Schr&ouml;dinger Bridge with Applications to Score-Based Generative Modeling.
+Ce dépôt contient l'implémentation de l'article "Pont de Schrödinger Diffusif avec Applications à la Modélisation Générative basée sur le Score".
 
-If using this code, please cite the paper:
+Si vous utilisez ce code, veuillez citer l'article :
 ```
     @article{de2021diffusion,
               title={Diffusion Schr$\backslash$" odinger Bridge with Applications to Score-Based Generative Modeling},
-              author={De Bortoli, Valentin and Thornton, James and Heng, Jeremy and Doucet, Arnaud},
+              author={De Bortoli, Valentin et Thornton, James et Heng, Jeremy et Doucet, Arnaud},
               journal={arXiv preprint arXiv:2106.01357},
               year={2021}
             }
 ```
 
-Contributors
+Contributeurs
 ------------
 
 *  Valentin De Bortoli  
@@ -21,80 +20,68 @@ Contributors
 *  Jeremy Heng
 *  Arnaud Doucet
 
-What is a Schr&ouml;dinger bridge?
+Qu'est-ce qu'un pont de Schrödinger ?
 -----------------------------
 
-The Schr&ouml;dinger Bridge (SB) problem is a classical problem appearing in
-applied mathematics, optimal control and probability; see [1, 2, 3].  In the
-discrete-time setting, it takes the following (dynamic) form. Consider as
-reference density p(x<sub>0:N</sub>) describing the process adding noise to the
-data.  We aim to find p\*(x<sub>0:N</sub>) such that p\*(x<sub>0</sub>) =
-p<sub>data</sub>(x<sub>0</sub>) and p\*(x<sub>N</sub>) =
-p<sub>prior</sub>(x<sub>N</sub>) and minimize the Kullback-Leibler divergence
-between p\* and p. In this work we introduce **Diffusion Schrodinger Bridge**
-(DSB), a new algorithm which uses score-matching approaches [4] to
-approximate the *Iterative Proportional Fitting* algorithm, an iterative method
-to find the solutions of the SB problem. DSB can be seen as a refinement of
-existing score-based generative modeling methods [5, 6].
+Le problème du Pont de Schrödinger (SB) est un problème classique en mathématiques appliquées, contrôle optimal et probabilité ; voir [1, 2, 3]. En temps discret, il prend la forme dynamique suivante : on considère une densité de référence p(x<sub>0:N</sub>) décrivant le processus d'ajout de bruit aux données. On cherche à trouver p\*(x<sub>0:N</sub>) telle que p\*(x<sub>0</sub>) = p<sub>data</sub>(x<sub>0</sub>) et p\*(x<sub>N</sub>) = p<sub>prior</sub>(x<sub>N</sub>), tout en minimisant la divergence de Kullback-Leibler entre p\* et p. Dans ce travail, nous introduisons le **Pont de Schrödinger Diffusif** (DSB), un nouvel algorithme utilisant des approches de score-matching [4] pour approximer l'algorithme *Iterative Proportional Fitting*, une méthode itérative pour résoudre le problème SB. DSB peut être vu comme un raffinement des méthodes existantes de modélisation générative basée sur le score [5, 6].
 
-
-![Schrodinger bridge](schrodinger_bridge.png)
+![Pont de Schrödinger](schrodinger_bridge.png)
 
 Installation
-------------
+-------------
 
-This project can be installed from its git repository. 
+Ce projet peut être installé depuis son dépôt git.
 
-1. Obtain the sources by:
+1. Obtenez les sources :
     
     `git clone https://github.com/anon284/schrodinger_bridge.git`
 
-or, if `git` is unavailable, download as a ZIP from GitHub https://github.com/<repository>.
+ou, si `git` n'est pas disponible, téléchargez en ZIP depuis GitHub https://github.com/<repository>.
   
-2. Install:
+2. Installation :
 
+```bash
+pip install -r requirements.txt
+```
 
+3. Téléchargez des exemples de données :
 
-3. Download data examples:
+    - CelebA : `python data.py --data celeba --data_dir './data/' `
+    - MNIST :  `python data.py --data mnist --data_dir './data/' `
 
-    - CelebA: `python data.py --data celeba --data_dir './data/' `
-    - MNIST:  `python data.py --data mnist --data_dir './data/' `
-
-
-How to use this code?
+Comment utiliser ce code ?
 ---------------------
 
-3. Train Networks:
-  - 2d:  `python main.py dataset=2d model=Basic num_steps=20 num_iter=5000`
-  - mnist `python main.py dataset=stackedmnist num_steps=30 model=UNET num_iter=5000 data_dir=<insert filepath of data dir <local paths/data/>`
-  - celeba `python main.py dataset=celeba num_steps=50 model=UNET num_iter=5000 data_dir=<insert filepath of data dir <local paths/data/>`
+3. Entraînez les réseaux :
+  - 2d :  `python main.py dataset=2d model=Basic num_steps=20 num_iter=5000`
+  - mnist : `python main.py dataset=stackedmnist num_steps=30 model=UNET num_iter=5000 data_dir=<chemin vers le dossier data>`
+  - celeba : `python main.py dataset=celeba num_steps=50 model=UNET num_iter=5000 data_dir=<chemin vers le dossier data>`
 
-Checkpoints and sampled images will be saved to a newly created directory. If GPU has insufficient memory, then reduce cache size. 2D dataset should train on CPU. MNIST and CelebA was ran on 2 high-memory V100 GPUs.
-    
+Les checkpoints et les images générées seront sauvegardés dans un nouveau dossier. Si la mémoire GPU est insuffisante, réduisez la taille du cache. Le dataset 2D doit être entraîné sur CPU. MNIST et CelebA ont été entraînés sur 2 GPU V100 à grande mémoire.
 
-References
+Références
 ----------
 
-.. [1] Hans F&ouml;llmer
-       *Random fields and diffusion processes*
+.. [1] Hans Föllmer
+       *Champs aléatoires et processus de diffusion*
        In: École d'été de Probabilités de Saint-Flour 1985-1987
 
 .. [2] Christian Léonard 
-       *A survey of the Schr&ouml;dinger problem and some of its connections with optimal transport*
+       *Un aperçu du problème de Schrödinger et de ses liens avec le transport optimal*
        In: Discrete & Continuous Dynamical Systems-A 2014
 
-.. [3] Yongxin Chen, Tryphon Georgiou and Michele Pavon
-       *Optimal Transport in Systems and Control*
+.. [3] Yongxin Chen, Tryphon Georgiou et Michele Pavon
+       *Transport optimal dans les systèmes et le contrôle*
        In: Annual Review of Control, Robotics, and Autonomous Systems 2020
 
-.. [4] Aapo Hyv&auml;rinen and Peter Dayan
-       *Estimation of non-normalized statistical models by score matching*
+.. [4] Aapo Hyvärinen et Peter Dayan
+       *Estimation de modèles statistiques non normalisés par score matching*
        In: Journal of Machine Learning Research 2005
 
-.. [5] Yang Song and Stefano Ermon
-       *Generative modeling by estimating gradients of the data distribution*
+.. [5] Yang Song et Stefano Ermon
+       *Modélisation générative par estimation des gradients de la distribution des données*
        In: Advances in Neural Information Processing Systems 2019
 
-.. [6] Jonathan Ho, Ajay Jain and Pieter Abbeel
-       *Denoising diffusion probabilistic models*
+.. [6] Jonathan Ho, Ajay Jain et Pieter Abbeel
+       *Modèles probabilistes de diffusion pour la débruitage*
        In: Advances in Neural Information Processing Systems 2020
