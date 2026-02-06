@@ -129,3 +129,4 @@ dmypy.json
 .pyre/
 
 /dataset_v2
+.venv
