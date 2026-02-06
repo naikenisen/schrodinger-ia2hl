@@ -4,7 +4,6 @@ import matplotlib
 import torch
 import torchvision.utils as vutils
 from PIL import Image
-from ..data.two_dim import data_distrib
 import os, sys
 matplotlib.use('Agg')
 
@@ -176,36 +175,6 @@ class ImPlotter(object):
                     
 
                 make_gif(plot_paths, output_directory=self.gif_dir, gif_name=name)
-
-    def __call__(self, initial_sample, x_tot_plot, i, n, forward_or_backward):
-        self.plot(initial_sample, x_tot_plot, i, n, forward_or_backward)
-
-
-class TwoDPlotter(Plotter):
-
-    def __init__(self, num_steps, gammas, im_dir = './im', gif_dir='./gif'):
-
-        if not os.path.isdir(im_dir):
-            os.mkdir(im_dir)
-        if not os.path.isdir(gif_dir):
-            os.mkdir(gif_dir)
-
-        self.im_dir = im_dir
-        self.gif_dir = gif_dir
-
-        self.num_steps = num_steps
-        self.gammas = gammas
-
-    def plot(self, initial_sample, x_tot_plot, i, n, forward_or_backward):
-        fb = forward_or_backward
-        ipf_it = n
-        x_tot_plot = x_tot_plot.cpu().numpy()
-        name = str(i) + '_' + fb +'_' + str(n) + '_'
-
-        save_sequence(num_steps=self.num_steps, x=x_tot_plot, name=name, xlim=(-15,15),
-                      ylim=(-15,15), ipf_it=ipf_it, freq=self.num_steps//min(self.num_steps,50),
-                      im_dir=self.im_dir, gif_dir=self.gif_dir)
-
 
     def __call__(self, initial_sample, x_tot_plot, i, n, forward_or_backward):
         self.plot(initial_sample, x_tot_plot, i, n, forward_or_backward)
