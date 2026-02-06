@@ -443,7 +443,7 @@ class IPFBase(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.accelerator = Accelerator(fp16=False, cpu=cfg.DEVICE == 'cpu')
+        self.accelerator = Accelerator(mixed_precision="no", cpu=(cfg.DEVICE == 'cpu'))
         self.device = self.accelerator.device
 
         # training params
