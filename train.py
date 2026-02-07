@@ -313,10 +313,12 @@ class CacheLoader(Dataset):
         start = time.time()
         shape = langevin.d
         num_steps = langevin.num_steps
+
+        # Stockage du cache sur CPU pour économiser la VRAM
         self.data = torch.zeros(
-            (num_batches, batch_size * num_steps, 2, *shape)).to(device)
+            (num_batches, batch_size * num_steps, 2, *shape))  # CPU
         self.steps_data = torch.zeros(
-            (num_batches, batch_size * num_steps, 1)).to(device)
+            (num_batches, batch_size * num_steps, 1))           # CPU
 
         with torch.no_grad():
             for b in range(num_batches):
@@ -334,14 +336,21 @@ class CacheLoader(Dataset):
                 else:
                     x, out, steps_expanded = langevin.record_langevin_seq(sample_net, batch, ipf_it=n)
 
-                x = x.unsqueeze(2)
-                out = out.unsqueeze(2)
+
+                # On transfère sur CPU immédiatement pour libérer la mémoire GPU
+                x = x.cpu().unsqueeze(2)
+                out = out.cpu().unsqueeze(2)
                 batch_data = torch.cat((x, out), dim=2)
                 flat_data = batch_data.flatten(start_dim=0, end_dim=1)
                 self.data[b] = flat_data
 
-                flat_steps = steps_expanded.flatten(start_dim=0, end_dim=1)
+                flat_steps = steps_expanded.cpu().flatten(start_dim=0, end_dim=1)
                 self.steps_data[b] = flat_steps
+
+                # Libération explicite des intermédiaires GPU
+                del x, out, batch_data, flat_data, flat_steps, batch
+                if device != 'cpu':
+                    torch.cuda.empty_cache()
 
         self.data = self.data.flatten(start_dim=0, end_dim=1)
         self.steps_data = self.steps_data.flatten(start_dim=0, end_dim=1)
