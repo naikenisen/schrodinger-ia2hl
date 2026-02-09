@@ -24,11 +24,25 @@ from dataloader import dataloader
 cmp = lambda x: transforms.Compose([*x])
 
 def repeater(data_loader):
+    """
+    Concept :
+    - Un DataLoader PyTorch s'arrête quand il a tout parcouru.
+    - Ici on veut pouvoir appeler next(...) indéfiniment sans gérer les fins d'epoch.
+    → On crée une boucle infinie qui répète le DataLoader.
+    """
     for loader in repeat(data_loader):
         for data in loader:
             yield data
 
 class EMAHelper:
+    """
+    EMA = Exponential Moving Average (moyenne glissante) des poids.
+
+    Concept (débutant) :
+    - pendant l'entraînement, les poids bougent beaucoup et peuvent être "bruités"
+    - EMA garde une version "plus stable" du modèle
+    - souvent cette version EMA génère de meilleures images
+    """
     def __init__(self, mu=0.999, device="cpu"):
         self.mu = mu
         self.shadow = {}
@@ -67,9 +81,24 @@ class EMAHelper:
         return module_copy
 
 def grad_gauss(x, m, var):
+    """
+    Concept :
+    - gradient d'une distribution Gaussienne
+    - sert ici à pousser les échantillons vers une distribution cible simple
+    (utile pour initialiser / guider certaines étapes)
+    """
     return -(x - m) / var
 
 class Langevin(torch.nn.Module):
+    """
+    Implémente une trajectoire de sampling par dynamique de Langevin.
+
+    Concept débutant :
+    - on part d'un état initial (images ou bruit)
+    - on applique plusieurs petites mises à jour
+    - à chaque étape, on ajoute un bruit aléatoire
+    - le réseau (net) sert à guider ces mises à jour
+    """
     def __init__(self, num_steps, shape, gammas, time_sampler, device=None,
                  mean_final=torch.tensor([0., 0.]), var_final=torch.tensor([.5, .5]),
                  mean_match=True):
@@ -134,6 +163,15 @@ class Langevin(torch.nn.Module):
         return x_tot, out, steps
 
 class CacheLoader(Dataset):
+    """
+    Dataset "fabriqué" à la volée.
+
+    Concept :
+    - au lieu d'entraîner directement sur les images, on génère des trajectoires
+      (via Langevin + un réseau) et on les "met en cache"
+    - ça transforme un problème complexe en un dataset supervisé :
+      (x, out, steps) où out est la cible à prédire.
+    """
     def __init__(self, fb, sample_net, dataloader_b, num_batches, langevin, n,
                  mean, std, batch_size, device='cpu', dataloader_f=None, transfer=False):
         super().__init__()
@@ -177,6 +215,15 @@ class CacheLoader(Dataset):
         return self.data.shape[0]
 
 def get_models():
+    """
+    Construit deux réseaux UNet :
+    - net_f : réseau "forward"
+    - net_b : réseau "backward"
+
+    Concept :
+    - le Schrödinger Bridge entraîne deux directions (aller/retour)
+    - les deux réseaux apprennent à se "répondre" via IPF.
+    """
     image_size = cfg.IMAGE_SIZE
     if image_size == 256: channel_mult = (1, 1, 2, 2, 4, 4)
     elif image_size == 64: channel_mult = (1, 2, 3, 4)
@@ -196,6 +243,15 @@ def get_models():
     return UNetModel(**kwargs), UNetModel(**kwargs)
 
 def get_datasets():
+    """
+    Charge deux datasets séparés :
+    - init_ds  : images de départ (HES)
+    - final_ds : images cibles (CD30)
+
+    Concept :
+    - on ne donne pas la paire (HES, CD30) directement
+    - on a deux domaines séparés, et le bridge apprend à passer de l'un à l'autre.
+    """
     train_transform = [
         transforms.Resize(cfg.IMAGE_SIZE), transforms.CenterCrop(cfg.IMAGE_SIZE),
         transforms.ToTensor()
@@ -210,6 +266,14 @@ def get_datasets():
     return init_ds, final_ds, mean_final, var_final
 
 class IPFTrainer(torch.nn.Module):
+    """
+    Classe de base qui prépare TOUT ce qu'il faut pour l'entraînement.
+
+    Concept IPF (Iterative Proportional Fitting) :
+    - on alterne l'entraînement du réseau backward et forward
+    - chaque réseau utilise l'autre réseau comme "générateur de trajectoires"
+      pour créer des données supervisées (CacheLoader).
+    """
     def __init__(self):
         super().__init__()
         self.accelerator = Accelerator(mixed_precision="no", cpu=(cfg.DEVICE == 'cpu'))

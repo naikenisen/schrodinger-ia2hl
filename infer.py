@@ -13,9 +13,26 @@ from models.unet import UNetModel
 from dataloader import dataloader
 
 def grad_gauss(x, m, var):
+    """
+    Concept :
+    - gradient d'une distribution Gaussienne
+    - sert ici à pousser les échantillons vers une distribution cible simple
+    (utile pour initialiser / guider certaines étapes)
+    """
     return -(x - m) / var
 
+
 class Langevin(torch.nn.Module):
+    """
+    Implémente une trajectoire de sampling par dynamique de Langevin.
+
+    Concept débutant :
+    - on part d'un état initial (images ou bruit)
+    - on applique plusieurs petites mises à jour
+    - à chaque étape, on ajoute un bruit aléatoire
+    - le réseau (net) sert à guider ces mises à jour
+    """   
+     
     def __init__(self, num_steps, shape, gammas, device=None, mean_match=True):
         super().__init__()
         self.mean_match = mean_match
@@ -58,7 +75,14 @@ class Langevin(torch.nn.Module):
         return x_tot, x
 
 def get_model(device):
-    """Initialise le modèle avec la config"""
+    """Construit deux réseaux UNet :
+    - net_f : réseau "forward"
+    - net_b : réseau "backward"
+
+    Concept :
+    - le Schrödinger Bridge entraîne deux directions (aller/retour)
+    - les deux réseaux apprennent à se "répondre" via IPF.
+    """
     image_size = cfg.IMAGE_SIZE
     if image_size == 256: channel_mult = (1, 1, 2, 2, 4, 4)
     elif image_size == 64: channel_mult = (1, 2, 3, 4)
