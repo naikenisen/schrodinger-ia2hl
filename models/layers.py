@@ -6,8 +6,6 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
-
-# PyTorch 1.7 has SiLU, but we support PyTorch 1.5.
 class SiLU(nn.Module):
     def forward(self, x):
         return x * th.sigmoid(x)
@@ -19,9 +17,7 @@ class GroupNorm32(nn.GroupNorm):
 
 
 def conv_nd(dims, *args, **kwargs):
-    """
-    Create a 1D, 2D, or 3D convolution module.
-    """
+
     if dims == 1:
         return nn.Conv1d(*args, **kwargs)
     elif dims == 2:
@@ -32,16 +28,11 @@ def conv_nd(dims, *args, **kwargs):
 
 
 def linear(*args, **kwargs):
-    """
-    Create a linear module.
-    """
+
     return nn.Linear(*args, **kwargs)
 
 
 def avg_pool_nd(dims, *args, **kwargs):
-    """
-    Create a 1D, 2D, or 3D average pooling module.
-    """
     if dims == 1:
         return nn.AvgPool1d(*args, **kwargs)
     elif dims == 2:
@@ -52,21 +43,11 @@ def avg_pool_nd(dims, *args, **kwargs):
 
 
 def update_ema(target_params, source_params, rate=0.99):
-    """
-    Update target parameters to be closer to those of source parameters using
-    an exponential moving average.
-    :param target_params: the target parameter sequence.
-    :param source_params: the source parameter sequence.
-    :param rate: the EMA rate (closer to 1 means slower).
-    """
     for targ, src in zip(target_params, source_params):
         targ.detach().mul_(rate).add_(src, alpha=1 - rate)
 
 
 def zero_module(module, active=True):
-    """
-    Zero out the parameters of a module and return it.
-    """
     if active:
         for p in module.parameters():
             p.detach().zero_()
@@ -74,39 +55,22 @@ def zero_module(module, active=True):
 
 
 def scale_module(module, scale):
-    """
-    Scale the parameters of a module and return it.
-    """
     for p in module.parameters():
         p.detach().mul_(scale)
     return module
 
 
 def mean_flat(tensor):
-    """
-    Take the mean over all non-batch dimensions.
-    """
     return tensor.mean(dim=list(range(1, len(tensor.shape))))
 
 
 def normalization(channels):
-    """
-    Make a standard normalization layer.
-    :param channels: number of input channels.
-    :return: an nn.Module for normalization.
-    """
+
     return GroupNorm32(32, channels)
 
 
 def timestep_embedding(timesteps, dim, max_period=10000):
-    """
-    Create sinusoidal timestep embeddings.
-    :param timesteps: a 1-D Tensor of N indices, one per batch element.
-                      These may be fractional.
-    :param dim: the dimension of the output.
-    :param max_period: controls the minimum frequency of the embeddings.
-    :return: an [N x dim] Tensor of positional embeddings.
-    """
+
     half = dim // 2
     freqs = th.exp(
         -math.log(max_period) * th.arange(start=0, end=half, dtype=th.float32) / half
@@ -119,15 +83,7 @@ def timestep_embedding(timesteps, dim, max_period=10000):
 
 
 def checkpoint(func, inputs, params, flag):
-    """
-    Evaluate a function without caching intermediate activations, allowing for
-    reduced memory at the expense of extra compute in the backward pass.
-    :param func: the function to evaluate.
-    :param inputs: the argument sequence to pass to `func`.
-    :param params: a sequence of parameters `func` depends on but does not
-                   explicitly take as arguments.
-    :param flag: if False, disable gradient checkpointing.
-    """
+
     if flag:
         args = tuple(inputs) + tuple(params)
         return CheckpointFunction.apply(func, len(inputs), *args)
@@ -149,9 +105,6 @@ class CheckpointFunction(th.autograd.Function):
     def backward(ctx, *output_grads):
         ctx.input_tensors = [x.detach().requires_grad_(True) for x in ctx.input_tensors]
         with th.enable_grad():
-            # Fixes a bug where the first op in run_function modifies the
-            # Tensor storage in place, which is not allowed for detach()'d
-            # Tensors.
             shallow_copies = [x.view_as(x) for x in ctx.input_tensors]
             output_tensors = ctx.run_function(*shallow_copies)
         input_grads = th.autograd.grad(
@@ -167,23 +120,12 @@ class CheckpointFunction(th.autograd.Function):
 
 
 class TimestepBlock(nn.Module):
-    """
-    Any module where forward() takes timestep embeddings as a second argument.
-    """
 
     @abstractmethod
     def forward(self, x, emb):
-        """
-        Apply the module to `x` given `emb` timestep embeddings.
-        """
 
 
 class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
-    """
-    A sequential module that passes timestep embeddings to the children that
-    support it as an extra input.
-    """
-
     def forward(self, x, emb):
         for layer in self:
             if isinstance(layer, TimestepBlock):
@@ -194,13 +136,6 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
 
 
 class Upsample(nn.Module):
-    """
-    An upsampling layer with an optional convolution.
-    :param channels: channels in the inputs and outputs.
-    :param use_conv: a bool determining if a convolution is applied.
-    :param dims: determines if the signal is 1D, 2D, or 3D. If 3D, then
-                 upsampling occurs in the inner-two dimensions.
-    """
 
     def __init__(self, channels, use_conv, dims=2):
         super().__init__()
@@ -224,13 +159,6 @@ class Upsample(nn.Module):
 
 
 class Downsample(nn.Module):
-    """
-    A downsampling layer with an optional convolution.
-    :param channels: channels in the inputs and outputs.
-    :param use_conv: a bool determining if a convolution is applied.
-    :param dims: determines if the signal is 1D, 2D, or 3D. If 3D, then
-                 downsampling occurs in the inner-two dimensions.
-    """
 
     def __init__(self, channels, use_conv, dims=2):
         super().__init__()
@@ -249,18 +177,6 @@ class Downsample(nn.Module):
 
 
 class ResBlock(TimestepBlock):
-    """
-    A residual block that can optionally change the number of channels.
-    :param channels: the number of input channels.
-    :param emb_channels: the number of timestep embedding channels.
-    :param dropout: the rate of dropout.
-    :param out_channels: if specified, the number of out channels.
-    :param use_conv: if True and out_channels is specified, use a spatial
-        convolution instead of a smaller 1x1 convolution to change the
-        channels in the skip connection.
-    :param dims: determines if the signal is 1D, 2D, or 3D.
-    :param use_checkpoint: if True, use gradient checkpointing on this module.
-    """
 
     def __init__(
         self,
@@ -313,12 +229,6 @@ class ResBlock(TimestepBlock):
             self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
 
     def forward(self, x, emb):
-        """
-        Apply the block to a Tensor, conditioned on a timestep embedding.
-        :param x: an [N x C x ...] Tensor of features.
-        :param emb: an [N x emb_channels] Tensor of timestep embeddings.
-        :return: an [N x C x ...] Tensor of outputs.
-        """
         return checkpoint(
             self._forward, (x, emb), self.parameters(), self.use_checkpoint
         )
@@ -340,11 +250,6 @@ class ResBlock(TimestepBlock):
 
 
 class AttentionBlock(nn.Module):
-    """
-    An attention block that allows spatial positions to attend to each other.
-    Originally ported from here, but adapted to the N-d case.
-    https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/models/unet.py#L66.
-    """
 
     def __init__(self, channels, num_heads=1, use_checkpoint=False):
         super().__init__()
@@ -372,16 +277,8 @@ class AttentionBlock(nn.Module):
 
 
 class QKVAttention(nn.Module):
-    """
-    A module which performs QKV attention.
-    """
 
     def forward(self, qkv):
-        """
-        Apply QKV attention.
-        :param qkv: an [N x (C * 3) x T] tensor of Qs, Ks, and Vs.
-        :return: an [N x C x T] tensor after attention.
-        """
         ch = qkv.shape[1] // 3
         q, k, v = th.split(qkv, ch, dim=1)
         scale = 1 / math.sqrt(math.sqrt(ch))
@@ -393,16 +290,6 @@ class QKVAttention(nn.Module):
 
     @staticmethod
     def count_flops(model, _x, y):
-        """
-        A counter for the `thop` package to count the operations in an
-        attention operation.
-        Meant to be used like:
-            macs, params = thop.profile(
-                model,
-                inputs=(inputs, timestamps),
-                custom_ops={QKVAttention: QKVAttention.count_flops},
-            )
-        """
         b, c, *spatial = y[0].shape
         num_spatial = int(np.prod(spatial))
         # We perform two matmuls with the same number of ops.

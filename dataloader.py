@@ -42,8 +42,6 @@ class dataloader(Dataset):
         super().__init__()
         self.root = root
         self.image_size = image_size
-
-        # Pour dataset_v4, on attend un sous-dossier split (train/valid/test)
         hes_dir = os.path.join(root, split, 'HES')
         cd30_dir = os.path.join(root, split, 'CD30')
 
@@ -54,7 +52,6 @@ class dataloader(Dataset):
 
         hes_files = set(os.listdir(hes_dir))
         cd30_files = set(os.listdir(cd30_dir))
-        # On ne garde que les fichiers présents dans les deux dossiers
         paired_files = sorted(list(hes_files & cd30_files))
         if len(paired_files) == 0:
             raise RuntimeError(
