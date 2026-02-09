@@ -33,8 +33,8 @@ from accelerate import Accelerator
 from pytorch_lightning.loggers import CSVLogger as _CSVLogger
 
 import config as cfg
-from bridge.models.unet import UNetModel
-from bridge.data.hes_cd30 import HES_CD30
+from models.unet import UNetModel
+from dataloader import HES_CD30
 
 cmp = lambda x: transforms.Compose([*x])
 
