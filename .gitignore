@@ -130,5 +130,6 @@ dmypy.json
 
 /dataset_v2
 /dataset_v3
+/dataset_v4
 .venv
 /results

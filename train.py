@@ -1,12 +1,3 @@
-"""
-Script d'entraînement complet DSB (Diffusion Schrödinger Bridge) : HES -> CD30.
-Tout le code d'entraînement (IPF, Langevin, EMA, CacheLoader, Logger, Plotter)
-est intégré ici. Seuls le modèle (UNet), le dataset (HES_CD30) et la config
-restent en modules externes.
-
-Les paramètres sont lus directement depuis config.py (variables simples).
-"""
-
 import os
 import sys
 import copy
@@ -34,7 +25,7 @@ from pytorch_lightning.loggers import CSVLogger as _CSVLogger
 
 import config as cfg
 from models.unet import UNetModel
-from dataloader import HES_CD30
+from dataloader import dataloader
 
 cmp = lambda x: transforms.Compose([*x])
 
@@ -423,9 +414,9 @@ def get_datasets():
 
     root = os.path.join(cfg.DATA_DIR, 'dataset_v2')
 
-    init_ds = HES_CD30(root, image_size=cfg.IMAGE_SIZE,
+    init_ds = dataloader(root, image_size=cfg.IMAGE_SIZE,
                        domain='HES', transform=cmp(train_transform))
-    final_ds = HES_CD30(root, image_size=cfg.IMAGE_SIZE,
+    final_ds = dataloader(root, image_size=cfg.IMAGE_SIZE,
                         domain='CD30', transform=cmp(train_transform))
     mean_final = torch.tensor(0.)
     var_final = torch.tensor(1. * 10 ** 3)

@@ -36,7 +36,7 @@ def inverse_data_transform(d_config, X):
     return torch.clamp(X, 0.0, 1.0)
 
 
-class HES_CD30(Dataset):
+class dataloader(Dataset):
 
     def __init__(self, root, image_size=256, transform=None):
         super().__init__()

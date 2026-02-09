@@ -1,9 +1,3 @@
-"""
-Configuration pour l'entraînement DSB : HES -> CD30 virtual staining.
-Tous les hyperparamètres sont centralisés ici.
-Modifier directement les valeurs ci-dessous.
-"""
-
 # ----- Dataset -----
 DATASET = "hes_cd30"
 DATASET_TRANSFER = "hes_cd30"
