@@ -38,13 +38,19 @@ def inverse_data_transform(d_config, X):
 
 class dataloader(Dataset):
 
-    def __init__(self, root, image_size=256, transform=None):
+    def __init__(self, root, image_size=256, transform=None, split='train'):
         super().__init__()
         self.root = root
         self.image_size = image_size
 
-        hes_dir = os.path.join(root, 'HES')
-        cd30_dir = os.path.join(root, 'CD30')
+        # Pour dataset_v4, on attend un sous-dossier split (train/valid/test)
+        hes_dir = os.path.join(root, split, 'HES')
+        cd30_dir = os.path.join(root, split, 'CD30')
+
+        if not os.path.isdir(hes_dir) or not os.path.isdir(cd30_dir):
+            raise RuntimeError(
+                f"Dossiers {hes_dir} ou {cd30_dir} introuvables. Vérifiez dataset_v4/{split}/HES et dataset_v4/{split}/CD30."
+            )
 
         hes_files = set(os.listdir(hes_dir))
         cd30_files = set(os.listdir(cd30_dir))
@@ -68,7 +74,7 @@ class dataloader(Dataset):
                 transforms.ToTensor(),
             ])
 
-        print(f"[HES_CD30] {len(self.paired_files)} paires HES/CD30 trouvées.")
+        print(f"[HES_CD30] {len(self.paired_files)} paires HES/CD30 trouvées dans {split}.")
 
     def __len__(self):
         return len(self.paired_files)
