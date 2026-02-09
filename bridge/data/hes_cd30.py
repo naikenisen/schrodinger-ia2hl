@@ -5,51 +5,28 @@ from torch.utils.data import Dataset
 from PIL import Image
 import torchvision.transforms as transforms
 
-
 class HES_CD30(Dataset):
-    """Dataset for paired HES / CD30 virtual staining.
-    
-    Expected folder structure:
-        root/
-        ├── HES/
-        │   ├── c/
-        │   │   ├── patch_x2000_y32000.jpg
-        │   │   └── ...
-        │   ├── e/
-        │   └── ...
-        └── CD30/
-            ├── c/
-            │   ├── patch_x2000_y32000.jpg
-            │   └── ...
-            ├── e/
-            └── ...
-    
-    Each HES image has a paired CD30 image with the same subfolder
-    and filename.
-    """
 
-    def __init__(self, root, image_size=256, domain='HES', transform=None):
-        """
-        Args:
-            root: path to dataset_v2/ directory
-            image_size: resize images to this size
-            domain: 'HES' or 'CD30'
-            transform: optional torchvision transform (overrides default)
-        """
+    def __init__(self, root, image_size=256, transform=None):
         super().__init__()
         self.root = root
-        self.domain = domain
         self.image_size = image_size
 
-        # Collect all image paths from the chosen domain
-        domain_dir = os.path.join(root, domain)
-        self.image_paths = sorted(glob.glob(os.path.join(domain_dir, '*', '*.jpg')))
+        hes_dir = os.path.join(root, 'HES')
+        cd30_dir = os.path.join(root, 'CD30')
 
-        if len(self.image_paths) == 0:
+        hes_files = set(os.listdir(hes_dir))
+        cd30_files = set(os.listdir(cd30_dir))
+        # On ne garde que les fichiers présents dans les deux dossiers
+        paired_files = sorted(list(hes_files & cd30_files))
+        if len(paired_files) == 0:
             raise RuntimeError(
-                f"No images found in {domain_dir}. "
-                f"Expected structure: {domain_dir}/<subfolder>/*.jpg"
+                f"Aucune paire trouvée entre {hes_dir} et {cd30_dir}. "
+                f"Vérifiez que les noms de fichiers correspondent."
             )
+        self.paired_files = paired_files
+        self.hes_dir = hes_dir
+        self.cd30_dir = cd30_dir
 
         if transform is not None:
             self.transform = transform
@@ -60,13 +37,17 @@ class HES_CD30(Dataset):
                 transforms.ToTensor(),
             ])
 
-        print(f"[HES_CD30] Loaded {len(self.image_paths)} images from {domain_dir}")
+        print(f"[HES_CD30] {len(self.paired_files)} paires HES/CD30 trouvées.")
 
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.paired_files)
 
     def __getitem__(self, index):
-        img_path = self.image_paths[index]
-        img = Image.open(img_path).convert('RGB')
-        img = self.transform(img)
-        return img, 0  # 0 is a dummy label for compatibility
+        fname = self.paired_files[index]
+        hes_path = os.path.join(self.hes_dir, fname)
+        cd30_path = os.path.join(self.cd30_dir, fname)
+        hes_img = Image.open(hes_path).convert('RGB')
+        cd30_img = Image.open(cd30_path).convert('RGB')
+        hes_img = self.transform(hes_img)
+        cd30_img = self.transform(cd30_img)
+        return hes_img, cd30_img, fname
