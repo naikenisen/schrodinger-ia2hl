@@ -13,24 +13,17 @@ from .layers import *
 
 class UNetModel(nn.Module):
     """
-    The full UNet model with attention and timestep embedding.
-    :param in_channels: channels in the input Tensor.
-    :param model_channels: base channel count for the model.
-    :param out_channels: channels in the output Tensor.
-    :param num_res_blocks: number of residual blocks per downsample.
-    :param attention_resolutions: a collection of downsample rates at which
-        attention will take place. May be a set, list, or tuple.
-        For example, if this contains 4, then at 4x downsampling, attention
-        will be used.
-    :param dropout: the dropout probability.
-    :param channel_mult: channel multiplier for each level of the UNet.
-    :param conv_resample: if True, use learned convolutions for upsampling and
-        downsampling.
-    :param dims: determines if the signal is 1D, 2D, or 3D.
-    :param num_classes: if specified (as an int), then this model will be
-        class-conditional with `num_classes` classes.
-    :param use_checkpoint: use gradient checkpointing to reduce memory usage.
-    :param num_heads: the number of attention heads in each attention layer.
+    UNet avec :
+    - un encodage du temps (timesteps)
+    - des blocs résiduels (ResBlock)
+    - de l’attention à certaines résolutions (AttentionBlock)
+
+    Concept UNet :
+    1) on "descend" en résolution (downsampling) pour comprendre le contexte global
+    2) on passe par un "milieu" (middle block)
+    3) on "remonte" en résolution (upsampling) pour reconstruire des détails
+    4) on utilise des "skip connections" : on garde des infos de la descente
+       et on les réinjecte pendant la remontée pour ne pas perdre les détails.
     """
 
     def __init__(
@@ -202,17 +195,13 @@ class UNetModel(nn.Module):
 
 
     def convert_to_fp16(self):
-        """
-        Convert the torso of the model to float16.
-        """
+        # Passe les blocs principaux en float16 (gain mémoire/perf)
         self.input_blocks.apply(convert_module_to_f16)
         self.middle_block.apply(convert_module_to_f16)
         self.output_blocks.apply(convert_module_to_f16)
 
     def convert_to_fp32(self):
-        """
-        Convert the torso of the model to float32.
-        """
+         # Reviens en float32
         self.input_blocks.apply(convert_module_to_f32)
         self.middle_block.apply(convert_module_to_f32)
         self.output_blocks.apply(convert_module_to_f32)
@@ -221,62 +210,99 @@ class UNetModel(nn.Module):
     def forward(self, x, timesteps, y=None):
 
         """
-        Apply the model to an input batch.
-        :param x: an [N x C x ...] Tensor of inputs.
-        :param timesteps: a 1-D batch of timesteps.
-        :param y: an [N] Tensor of labels, if class-conditional.
-        :return: an [N x C x ...] Tensor of outputs.
+        Concept : faire passer x dans le UNet en tenant compte du temps (timesteps).
+
+        Entrées :
+        - x : batch d’images/features
+        - timesteps : étape de diffusion (ou étape temporelle)
+        - y : label (si modèle conditionnel)
+
+        Sortie :
+        - tenseur de même forme générale que x (selon out_channels),
+          typiquement une prédiction liée au processus de diffusion (ex: bruit / score).
         """
+
+        # Mise en forme : on enlève les dimensions inutiles pour avoir un vecteur de timesteps propre.
         timesteps = timesteps.squeeze()
+         # Vérification : si le modèle est conditionnel (num_classes défini),
+        # alors on DOIT fournir y, et inversement.
         assert (y is not None) == (
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
 
+        # hs va stocker les sorties intermédiaires de la "descente" (downsampling).
+        # Concept : ces valeurs serviront plus tard comme "raccourcis" (skip connections)
+        # pour récupérer les détails lors de la remontée.
         hs = []
-        # Crée l’embedding du temps et le rend "utilisable" par le réseau
+
+        # On transforme timesteps en vecteur riche (embedding du temps),
+        # puis on l'adapte au réseau (time_embed).
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
 
-        # Crée l’embedding du temps et le rend "utilisable" par le réseau
+        # Si le modèle est conditionné par une classe :
+        # on ajoute une information de classe à l'embedding du temps.
         if self.num_classes is not None:
             assert y.shape == (x.shape[0],)
             emb = emb + self.label_emb(y)
+        
+        # h est le "signal" qui va traverser tout le UNet.
+        h = x #.type(self.inner_dtype)
 
-        h = x#.type(self.inner_dtype)
+        # 1) DESCENTE du UNet :
+        # on applique les blocs d'entrée (resblocks + downsample) et on mémorise chaque étape.
         for module in self.input_blocks:
             h = module(h, emb)
             hs.append(h)
+
+        # 2) MILIEU du UNet :
+        # partie la plus "profonde", à plus basse résolution (beaucoup de contexte global).
         h = self.middle_block(h, emb)
+
+        # 3) REMONTÉE du UNet :
+        # à chaque étape, on concatène avec un état sauvegardé de la descente
+        # pour récupérer des informations fines (skip connections).
         for module in self.output_blocks:
             cat_in = th.cat([h, hs.pop()], dim=1)
             h = module(cat_in, emb)
+        
+        # Sécurité : on remet le même type numérique que l'entrée.
         h = h.type(x.dtype)
+
+        # Dernière couche : produit la sortie dans le bon nombre de canaux.
         return self.out(h)
 
     def get_feature_vectors(self, x, timesteps, y=None):
         """
-        Apply the model and return all of the intermediate tensors.
-        :param x: an [N x C x ...] Tensor of inputs.
-        :param timesteps: a 1-D batch of timesteps.
-        :param y: an [N] Tensor of labels, if class-conditional.
-        :return: a dict with the following keys:
-                 - 'down': a list of hidden state tensors from downsampling.
-                 - 'middle': the tensor of the output of the lowest-resolution
-                             block in the model.
-                 - 'up': a list of hidden state tensors from upsampling.
+         Concept : même passage que forward(), mais on récupère aussi les étapes intermédiaires.
+        Utilité :
+        - déboguer / visualiser ce que le réseau "apprend"
+        - analyser les features à différentes résolutions
         """
+         # Même logique que forward : on construit l'embedding temps (et classe si besoin)
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
         if self.num_classes is not None:
             assert y.shape == (x.shape[0],)
             emb = emb + self.label_emb(y)
+        
+        # Dictionnaire de sortie :
+        # - down : ce qui sort pendant la descente
+        # - middle : la représentation au fond du UNet
+        # - up : ce qui sort pendant la remontée
         result = dict(down=[], up=[])
+
         h = x#.type(self.inner_dtype)
+
+        # DESCENTE : on stocke à la fois dans hs (pour les skip connections)
+        # et dans result["down"] pour pouvoir les retourner.
         for module in self.input_blocks:
             h = module(h, emb)
             hs.append(h)
             result["down"].append(h.type(x.dtype))
+         # MILIEU
         h = self.middle_block(h, emb)
         result["middle"] = h.type(x.dtype)
+        # REMONTÉE : pareil que forward, mais on sauvegarde chaque étape.
         for module in self.output_blocks:
             cat_in = th.cat([h, hs.pop()], dim=1)
             h = module(cat_in, emb)
@@ -284,22 +310,33 @@ class UNetModel(nn.Module):
         return result
 
 
+
 class SuperResModel(UNetModel):
     """
-    A UNetModel that performs super-resolution.
-    Expects an extra kwarg `low_res` to condition on a low-resolution image.
+    Variante du UNet pour faire de la super-résolution.
+
+    Concept :
+    - le modèle reçoit une image (ou une estimation) en haute résolution
+    - et une image low_res (basse résolution) qui sert de "guide"
     """
 
     def __init__(self, in_channels, *args, **kwargs):
+        # On multiplie par 2 car on va concaténer x et l'image low_res agrandie :
+        # donc on a 2 fois plus de canaux en entrée.
         super().__init__(in_channels * 2, *args, **kwargs)
 
     def forward(self, x, timesteps, low_res=None, **kwargs):
+        # On agrandit low_res pour qu'elle ait la même taille que x.
         _, _, new_height, new_width = x.shape
         upsampled = F.interpolate(low_res, (new_height, new_width), mode="bilinear")
+         # On concatène x et low_res agrandie (en canaux) pour donner au UNet
+        # l'image "guide" en plus de l'image à traiter.
         x = th.cat([x, upsampled], dim=1)
+         # Puis on appelle le forward du UNet standard.
         return super().forward(x, timesteps, **kwargs)
 
     def get_feature_vectors(self, x, timesteps, low_res=None, **kwargs):
+         # Même idée que forward, mais on retourne aussi les features intermédiaires.
         _, new_height, new_width, _ = x.shape
         upsampled = F.interpolate(low_res, (new_height, new_width), mode="bilinear")
         x = th.cat([x, upsampled], dim=1)
