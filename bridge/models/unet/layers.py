@@ -17,7 +17,6 @@ class SiLU(nn.Module):
 # Normalisation : stabilise l’apprentissage.
 # Ici, on force les calculs internes en float32 pour éviter des erreurs numériques.
 class GroupNorm32(nn.GroupNorm):
-class GroupNorm32(nn.GroupNorm):
     def forward(self, x):
         return super().forward(x.float()).type(x.dtype)
 

@@ -54,6 +54,7 @@ class UNetModel(nn.Module):
 
         if num_heads_upsample == -1:
             num_heads_upsample = num_heads
+        # Stocke les hyperparamètres (utile pour reproduire/charger un modèle)
         self.locals = [ in_channels,
                         model_channels,
                         out_channels,
@@ -82,16 +83,20 @@ class UNetModel(nn.Module):
         self.num_heads = num_heads
         self.num_heads_upsample = num_heads_upsample
 
+        # Encodage du temps :
+        # transforme un "timestep" en un vecteur qui sera utilisé partout dans le réseau.
         time_embed_dim = model_channels * 4
         self.time_embed = nn.Sequential(
             linear(model_channels, time_embed_dim),
             SiLU(),
             linear(time_embed_dim, time_embed_dim),
         )
-
+        # Option : modèle conditionné par une classe (ex: générer une catégorie précise)
         if self.num_classes is not None:
             self.label_emb = nn.Embedding(num_classes, time_embed_dim)
 
+        # input_blocks = la partie "descente" du UNet
+        # On commence par une convolution pour passer dans l’espace de features.
         self.input_blocks = nn.ModuleList(
             [
                 TimestepEmbedSequential(
@@ -131,6 +136,13 @@ class UNetModel(nn.Module):
                 input_block_chans.append(ch)
                 ds *= 2
 
+        # On construit ensuite plusieurs niveaux :
+        # - à chaque niveau, on applique des ResBlocks
+        # - parfois, on ajoute Attention
+        # - puis on downsample pour aller vers une résolution plus basse
+
+        # middle_block = le fond du UNet
+        # Résolution la plus basse : beaucoup de contexte, moins de détail spatial.
         self.middle_block = TimestepEmbedSequential(
             ResBlock(
                 ch,
@@ -178,7 +190,10 @@ class UNetModel(nn.Module):
                     layers.append(Upsample(ch, conv_resample, dims=dims))
                     ds //= 2
                 self.output_blocks.append(TimestepEmbedSequential(*layers))
-
+        # output_blocks = la partie "remontée" du UNet
+        # On remonte en résolution et on concatène les features de la descente (skip connections).
+        
+        # out = dernière partie : remet dans le nombre de canaux souhaité (ex: prédire un bruit / une image)
         self.out = nn.Sequential(
             normalization(ch),
             SiLU(),
@@ -218,8 +233,10 @@ class UNetModel(nn.Module):
         ), "must specify y if and only if the model is class-conditional"
 
         hs = []
+        # Crée l’embedding du temps et le rend "utilisable" par le réseau
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
 
+        # Crée l’embedding du temps et le rend "utilisable" par le réseau
         if self.num_classes is not None:
             assert y.shape == (x.shape[0],)
             emb = emb + self.label_emb(y)

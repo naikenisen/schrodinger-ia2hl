@@ -4,11 +4,6 @@ import torch.nn.functional as F
 import math
 from functools import partial
 
-"""⚠️ Petite remarque : ton layers.py a exactement le même contenu que basic.py 
-(et il s’importe lui-même avec from .layers import MLP, ce qui ferait une boucle). 
-Je commente quand même selon l’intention, mais il est très probable que ce fichier 
-ne soit pas le bon (ou qu’il ait été copié par erreur)."""
-
 # ATTENTION : ce fichier semble contenir une copie de ScoreNetwork.
 # Normalement, layers.py devrait définir des briques de réseau (ex: MLP),
 # utilisées par basic.py.
