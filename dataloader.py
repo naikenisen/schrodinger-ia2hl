@@ -8,13 +8,8 @@ import torch
 
 class dataloader(Dataset):
     """
-    Dataset for paired HES / CD30 virtual staining.
-
     Concept : fournir un accès standardise aux images d’un domaine (HES ou CD30)
     dans un format compatible PyTorch, pour alimenter un pipeline d’entraînement.
-
-    NB : La doc decrit des paires HES↔CD30 (même nom de fichier dans deux dossiers),
-    mais cette classe, telle qu’ecrite, charge un seul domaine à la fois (domain='HES' ou 'CD30').
     """
     def __init__(self, root, image_size=256, split='train'):
         super().__init__()
