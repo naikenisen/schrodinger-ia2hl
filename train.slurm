@@ -1,0 +1,18 @@
+#!/bin/bash
+#SBATCH --job-name=schrodinger # nom du job
+#SBATCH --output=schrodinger%j.out # fichier de sortie (%j = job ID)
+#SBATCH --error=schrodinger%j.err # fichier d’erreur (%j = job ID)
+#SBATCH --constraint=a100 # demander des GPU A100 80 Go
+#SBATCH --nodes=2 # reserver 2 nœuds
+#SBATCH --ntasks=16 # reserver 16 taches (ou processus)
+#SBATCH --gres=gpu:8 # reserver 8 GPU par noeud
+#SBATCH --cpus-per-task=8 # reserver 8 CPU par tache (et memoire associee)
+#SBATCH --time=20:00:00 # temps maximal d’allocation "(HH:MM:SS)"
+#SBATCH --hint=nomultithread # desactiver l’hyperthreading
+#SBATCH --account=xyz@a100 # comptabilite A100
+module purge # nettoyer les modules herites par defaut
+conda deactivate # desactiver les environnements herites par defaut
+module load arch/a100 # selectionner les modules compiles pour les A100
+module load pytorch-gpu/py3/2.3.0 # charger les modules
+set -x # activer l’echo des commandes
+srun python train.py # executer son script
