@@ -3,7 +3,6 @@ DATASET = "hes_cd30"
 DATASET_TRANSFER = "hes_cd30"
 IMAGE_SIZE = 256
 CHANNELS = 3
-RANDOM_FLIP = True
 DATA_DIR = "./"                          # dataset_v2/ doit être dans ce dossier
 TRANSFER = True                          # mode transfer : HES -> CD30
 LOAD = False
@@ -19,12 +18,15 @@ DROPOUT = 0.0
 USE_CHECKPOINT = False
 USE_SCALE_SHIFT_NORM = True
 
-# ----- Device -----
 import torch
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"  # Auto-detect GPU availability
+# ----- Device -----
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DATAPARALLEL = True
-NUM_WORKERS = 1
+NUM_WORKERS = 8  # Augmenté pour accélérer le dataloader
 PIN_MEMORY = True
+
+# ----- Mixed Precision (fp16) -----
+USE_FP16 = True  # Active le mode fp16/mixed precision pour accélérer l'entraînement sur V100
 
 # ----- Entraînement -----
 BATCH_SIZE = 4
