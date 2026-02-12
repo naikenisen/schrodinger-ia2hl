@@ -229,8 +229,7 @@ def get_models():
         dropout=cfg.DROPOUT,
         channel_mult=channel_mult,
         num_heads=cfg.NUM_HEADS,
-        num_heads_upsample=cfg.NUM_HEADS_UPSAMPLE,
-        use_scale_shift_norm=cfg.USE_SCALE_SHIFT_NORM,
+        num_heads_upsample=cfg.NUM_HEADS_UPSAMPLE
     )
     net_b = UNetModel(
         in_channels=cfg.CHANNELS,
@@ -241,15 +240,14 @@ def get_models():
         dropout=cfg.DROPOUT,
         channel_mult=channel_mult,
         num_heads=cfg.NUM_HEADS,
-        num_heads_upsample=cfg.NUM_HEADS_UPSAMPLE,
-        use_scale_shift_norm=cfg.USE_SCALE_SHIFT_NORM,
+        num_heads_upsample=cfg.NUM_HEADS_UPSAMPLE
     )
     
     # NOTE: Pas de conversion .half() ici, Accelerate s'en charge.
     return net_f, net_b
 
 class IPFTrainer(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, transfer=True):
         super().__init__()
         # 1. On garde mixed_precision="fp16" ici, c'est lui le chef.
         self.accelerator = Accelerator(mixed_precision="fp16", cpu=False)
@@ -258,6 +256,8 @@ class IPFTrainer(torch.nn.Module):
         self.num_steps = cfg.NUM_STEPS
         self.batch_size = cfg.BATCH_SIZE
         self.lr = cfg.LR
+
+        self.transfer = transfer
 
 
         n = self.num_steps // 2
@@ -273,34 +273,28 @@ class IPFTrainer(torch.nn.Module):
             'f': torch.optim.Adam(self.net['f'].parameters(), lr=self.lr),
             'b': torch.optim.Adam(self.net['b'].parameters(), lr=self.lr)
         }
-        self.use_fp16 = getattr(cfg, 'USE_FP16', False)
         # Préparer les optimizers une seule fois avec accelerate
         self.net['f'] = self.accelerator.prepare(self.net['f'])
         self.net['b'] = self.accelerator.prepare(self.net['b'])
         self.optimizer['f'] = self.accelerator.prepare(self.optimizer['f'])
         self.optimizer['b'] = self.accelerator.prepare(self.optimizer['b'])
-        if cfg.EMA:
-            self.ema_helpers = {
-                'f': EMAHelper(mu=cfg.EMA_RATE, device=self.device),
-                'b': EMAHelper(mu=cfg.EMA_RATE, device=self.device)
-            }
-            # Note: Si tu utilises accelerate, l'accès aux paramètres peut nécessiter .module si c'est wrappé
-            # Mais EMAHelper gère déjà DataParallel, donc ça devrait aller.
-            self.ema_helpers['f'].register(self.net['f'])
-            self.ema_helpers['b'].register(self.net['b'])
+        self.ema_helpers = {
+            'f': EMAHelper(mu=cfg.EMA_RATE, device=self.device),
+            'b': EMAHelper(mu=cfg.EMA_RATE, device=self.device)
+        }
+        # Note: Si tu utilises accelerate, l'accès aux paramètres peut nécessiter .module si c'est wrappé
+        # Mais EMAHelper gère déjà DataParallel, donc ça devrait aller.
+        self.ema_helpers['f'].register(self.net['f'])
+        self.ema_helpers['b'].register(self.net['b'])
 
         init_ds, final_ds, mean_final, var_final = get_datasets()
         self.mean_final = mean_final.to(self.device)
         self.var_final = var_final.to(self.device)
         self.std_final = torch.sqrt(var_final).to(self.device)
 
-        dl_kwargs = {"num_workers": cfg.NUM_WORKERS, "pin_memory": True, "drop_last": True, "shuffle": True}
+        dl_kwargs = {"num_workers": cfg.NUM_WORKERS, "drop_last": True, "shuffle": True}
         self.cache_init_dl = repeater(self.accelerator.prepare(DataLoader(init_ds, batch_size=cfg.CACHE_NPAR, **dl_kwargs)))
-        
-        if cfg.TRANSFER:
-            self.cache_final_dl = repeater(self.accelerator.prepare(DataLoader(final_ds, batch_size=cfg.CACHE_NPAR, **dl_kwargs)))
-        else:
-            self.cache_final_dl = None
+        self.cache_final_dl = repeater(self.accelerator.prepare(DataLoader(final_ds, batch_size=cfg.CACHE_NPAR, **dl_kwargs))) if self.transfer else None
 
         prob_vec = gammas * 0 + 1
         time_sampler = torch.distributions.categorical.Categorical(prob_vec)
@@ -310,41 +304,32 @@ class IPFTrainer(torch.nn.Module):
                                 mean_match=cfg.MEAN_MATCH)
         os.makedirs('./checkpoints', exist_ok=True)
 
-    def new_cacheloader(self, forward_or_backward, n):
+    def new_cacheloader(self, forward_or_backward, n, transfer=None):
         sample_dir = 'f' if forward_or_backward == 'b' else 'b'
-        if cfg.EMA:
-            sample_net = self.ema_helpers[sample_dir].ema_copy(self.net[sample_dir])
-        else:
-            sample_net = self.net[sample_dir]
+        sample_net = self.ema_helpers[sample_dir].ema_copy(self.net[sample_dir])
+        if transfer is None:
+            transfer = self.transfer
         if forward_or_backward == 'b':
-
             dl = CacheLoader('b', sample_net, self.cache_init_dl, cfg.NUM_CACHE_BATCHES, 
                              self.langevin, n, mean=None, std=None, batch_size=cfg.CACHE_NPAR, 
-                             device=self.device, dataloader_f=self.cache_final_dl, transfer=cfg.TRANSFER)
+                             device=self.device, dataloader_f=self.cache_final_dl, transfer=transfer)
         else:
-
             dl = CacheLoader('f', sample_net, None, cfg.NUM_CACHE_BATCHES, 
                              self.langevin, n, mean=self.mean_final, std=self.std_final, batch_size=cfg.CACHE_NPAR, 
-                             device=self.device, dataloader_f=self.cache_final_dl, transfer=cfg.TRANSFER)
-        
+                             device=self.device, dataloader_f=self.cache_final_dl, transfer=transfer)
         return repeater(self.accelerator.prepare(DataLoader(
             dl, 
             batch_size=self.batch_size, 
-            num_workers=0,  # <--- CRUCIAL : Mettre à 0 pour le cache !
-            pin_memory=True
+            num_workers=0  # <--- CRUCIAL : Mettre à 0 pour le cache !
         )))
 
     def save_checkpoint(self, fb, n, i):
         if self.accelerator.is_local_main_process:
             filename = f'./checkpoints/net_{fb}_{n}.ckpt'
 
-            if cfg.EMA:
-                print(f"Saving EMA weights to {filename}")
-                model_to_save = self.ema_helpers[fb].ema_copy(self.net[fb])
-                torch.save(model_to_save.state_dict(), filename)
-            else:
-                print(f"Saving Standard weights to {filename}")
-                torch.save(self.net[fb].state_dict(), filename)
+            print(f"Saving EMA weights to {filename}")
+            model_to_save = self.ema_helpers[fb].ema_copy(self.net[fb])
+            torch.save(model_to_save.state_dict(), filename)
 
     def ipf_step(self, fb, n):
             print(f"Starting IPF step {n} for direction {fb}")
@@ -372,22 +357,18 @@ class IPFTrainer(torch.nn.Module):
                 self.accelerator.backward(loss)
                 
                 # Clipping & Step (SIMPLIFIÉ)
-                if cfg.GRAD_CLIPPING:
-                    self.accelerator.clip_grad_norm_(self.net[fb].parameters(), cfg.GRAD_CLIP)
+                self.accelerator.clip_grad_norm_(self.net[fb].parameters(), cfg.GRAD_CLIP)
 
                 self.optimizer[fb].step()
                 self.optimizer[fb].zero_grad()
 
-                # EMA
-                if cfg.EMA:
-                    self.ema_helpers[fb].update(self.net[fb])
+                self.ema_helpers[fb].update(self.net[fb])
 
                 # Refresh du cache
                 if i > 0 and i % cfg.CACHE_REFRESH_STRIDE == 0:
                     train_dl = self.new_cacheloader(fb, n)
             
             self.save_checkpoint(fb, n, cfg.NUM_ITER)
-            self.logger.save()
 
     def train(self):
         for n in range(1, self.n_ipf + 1):
@@ -395,5 +376,5 @@ class IPFTrainer(torch.nn.Module):
             self.ipf_step('f', n)
 
 print('debut entrainement')
-trainer = IPFTrainer()
+trainer = IPFTrainer()  # Par défaut, transfer=True
 trainer.train()
