@@ -6,7 +6,7 @@ import datetime
 import numpy as np
 from itertools import repeat
 import torch
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
@@ -272,7 +272,7 @@ class IPFTrainer(torch.nn.Module):
         }
         self.use_fp16 = getattr(cfg, 'USE_FP16', False)
         if self.use_fp16:
-            self.scaler = GradScaler()
+            self.scaler = GradScaler('cuda')
         if cfg.EMA:
             self.ema_helpers = {
                 'f': EMAHelper(mu=cfg.EMA_RATE, device=self.device),
@@ -340,44 +340,63 @@ class IPFTrainer(torch.nn.Module):
         self.net[fb] = self.accelerator.prepare(self.net[fb])
         self.optimizer[fb] = self.accelerator.prepare(self.optimizer[fb])
 
+        import time as _time
         for i in tqdm(range(cfg.NUM_ITER)):
+            t0 = _time.time()
             x, out, steps_expanded = next(train_dl)
-            
+            t1 = _time.time()
             eval_steps = self.T - steps_expanded.to(self.device)
+            t2 = _time.time()
             x = x.to(self.device)
             out = out.to(self.device)
+            t3 = _time.time()
 
-
+            # Forward
+            t4 = _time.time()
             if self.use_fp16:
-                with autocast():
+                with autocast('cuda'):
                     if cfg.MEAN_MATCH:
                         pred = self.net[fb](x, eval_steps) - x
                     else:
                         pred = self.net[fb](x, eval_steps)
                     loss = F.mse_loss(pred, out)
+                t5 = _time.time()
+                # Backward
                 self.scaler.scale(loss).backward()
+                t6 = _time.time()
+                # Grad clipping
                 if cfg.GRAD_CLIPPING:
                     self.scaler.unscale_(self.optimizer[fb])
                     torch.nn.utils.clip_grad_norm_(self.net[fb].parameters(), cfg.GRAD_CLIP)
+                # Optimizer step
                 self.scaler.step(self.optimizer[fb])
                 self.scaler.update()
                 self.optimizer[fb].zero_grad()
+                t7 = _time.time()
             else:
                 if cfg.MEAN_MATCH:
                     pred = self.net[fb](x, eval_steps) - x
                 else:
                     pred = self.net[fb](x, eval_steps)
                 loss = F.mse_loss(pred, out)
+                t5 = _time.time()
                 self.accelerator.backward(loss)
+                t6 = _time.time()
                 if cfg.GRAD_CLIPPING:
                     torch.nn.utils.clip_grad_norm_(self.net[fb].parameters(), cfg.GRAD_CLIP)
                 self.optimizer[fb].step()
                 self.optimizer[fb].zero_grad()
+                t7 = _time.time()
 
+            # EMA
+            t8 = _time.time()
             if cfg.EMA:
                 self.ema_helpers[fb].update(self.net[fb])
+            t9 = _time.time()
 
+            # Logging
             if i % cfg.LOG_STRIDE == 0 and self.accelerator.is_local_main_process:
+                print(f"[TIMING] Batch {i}: Dataloader={t1-t0:.3f}s, StepsCalc={t2-t1:.3f}s, ToGPU={t3-t2:.3f}s, Forward={t5-t4:.3f}s, Backward={t6-t5:.3f}s, Optimizer={t7-t6:.3f}s, EMA={t9-t8:.3f}s")
                 self.logger.log_metrics({'loss': loss.item(), 'step': i, 'ipf': n, 'dir': fb})
 
             if i > 0 and i % cfg.CACHE_REFRESH_STRIDE == 0:
