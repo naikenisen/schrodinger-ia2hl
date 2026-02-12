@@ -5,13 +5,13 @@ import numpy as np
 import torch
 import torchvision.utils as vutils
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 from PIL import Image
 import config as cfg
 from models.unet import UNetModel
-from dataloader import dataloader
-
+from dataloader import dataloader, get_test_dataloader
+import matplotlib.pyplot as plt
+from torchvision.transforms.functional import to_pil_image
 
 class Langevin(torch.nn.Module):
     """
@@ -96,25 +96,6 @@ def get_model(device):
     use_scale_shift_norm=cfg.USE_SCALE_SHIFT_NORM)
 
     return net.to(device)
-
-def get_test_dataloader():
-    """Charge le Dataset de TEST spécifiquement"""
-    test_transform = transforms.Compose([
-        transforms.Resize(cfg.IMAGE_SIZE),
-        transforms.CenterCrop(cfg.IMAGE_SIZE),
-        transforms.ToTensor(),
-    ])
-    
-    root = os.path.join(cfg.DATA_DIR, 'dataset_v4')
-    test_ds = dataloader(root, image_size=cfg.IMAGE_SIZE, domain='HES', transform=test_transform)
-
-    loader = DataLoader(test_ds, batch_size=cfg.BATCH_SIZE, shuffle=False, num_workers=cfg.NUM_WORKERS)
-    return loader
-
-import matplotlib.pyplot as plt
-from torchvision.transforms.functional import to_pil_image
-import os
-from PIL import Image
 
 def save_results(input_batch, output_batch, output_dir, batch_idx, paired_files=None, cd30_dir=None):
     """

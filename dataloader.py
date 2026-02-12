@@ -4,6 +4,7 @@ from torch.utils.data import Dataset
 from PIL import Image
 import torchvision.transforms as transforms
 import config as cfg
+from torch.utils.data import DataLoader
 
 cmp = lambda x: transforms.Compose([*x])
 
@@ -101,3 +102,17 @@ def get_datasets():
     mean_final = torch.tensor(0.)
     var_final = torch.tensor(1. * 10 ** 3)
     return init_ds, final_ds, mean_final, var_final
+
+
+def get_test_dataloader():
+    """Charge le Dataset de TEST spécifiquement"""
+    test_transform = [
+        transforms.Resize(cfg.IMAGE_SIZE),
+        transforms.ToTensor()
+    ]
+    
+    root = os.path.join(cfg.DATA_DIR, 'dataset_v4')
+    test_ds = dataloader(root, image_size=cfg.IMAGE_SIZE, domain='HES', transform=test_transform, split ='test')
+
+    loader = DataLoader(test_ds, batch_size=cfg.BATCH_SIZE, shuffle=False, num_workers=cfg.NUM_WORKERS)
+    return loader
