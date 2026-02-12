@@ -1,161 +1,155 @@
 import os
-import numpy as np
-from itertools import repeat
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+import numpy as np
 from tqdm import tqdm
 from accelerate import Accelerator
+from torch.utils.data import DataLoader
+
 import config as cfg
-from models.unet import UNetModel
 from dataloader import get_datasets
+from models.unet import UNetModel
 from models.utils import Langevin, CacheLoader, EMAHelper, repeater
-import torchvision.transforms as transforms
 
-def get_models():
-    channel_mult = (1, 1, 2, 2, 4, 4)
-    attention_ds = [256 // int(res) for res in cfg.ATTENTION_RESOLUTIONS.split(",")]
-
-    net_f = UNetModel(
-        model_channels=cfg.NUM_CHANNELS,
-        num_res_blocks=cfg.NUM_RES_BLOCKS,
-        attention_resolutions=tuple(attention_ds),
-        dropout=cfg.DROPOUT,
-        channel_mult=channel_mult
-    )
-    net_b = UNetModel(
-        model_channels=cfg.NUM_CHANNELS,
-        num_res_blocks=cfg.NUM_RES_BLOCKS,
-        attention_resolutions=tuple(attention_ds),
-        dropout=cfg.DROPOUT,
-        channel_mult=channel_mult
-    )
-    return net_f, net_b
-
-class IPFTrainer(torch.nn.Module):
-    def __init__(self, transfer=True):
-        super().__init__()
-        self.accelerator = Accelerator(mixed_precision="fp16", cpu=False)
+class IPFTrainer:
+    def __init__(self):
+        self.accelerator = Accelerator(mixed_precision="fp16")
         self.device = self.accelerator.device
+        
+        # Configuration
         self.n_ipf = cfg.N_IPF
         self.num_steps = cfg.NUM_STEPS
         self.batch_size = cfg.BATCH_SIZE
-        self.lr = cfg.LR
-        self.transfer = transfer
-
-
+        self.transfer = cfg.TRANSFER
+        
+        # Time schedule
         n = self.num_steps // 2
-        gamma_half = np.linspace(cfg.GAMMA_MIN, cfg.GAMMA_MAX, n) if cfg.GAMMA_SPACE == 'linspace' else np.geomspace(cfg.GAMMA_MIN, cfg.GAMMA_MAX, n)
+        if cfg.GAMMA_SPACE == 'linspace':
+            gamma_half = np.linspace(cfg.GAMMA_MIN, cfg.GAMMA_MAX, n)
+        else:
+            gamma_half = np.geomspace(cfg.GAMMA_MIN, cfg.GAMMA_MAX, n)
         gammas = np.concatenate([gamma_half, np.flip(gamma_half)])
-        gammas = torch.tensor(gammas).to(self.device)
-        self.T = torch.sum(gammas)
-        self.net = nn.ModuleDict()
-        net_f, net_b = get_models()
-        self.net['f'] = net_f.to(self.device)
-        self.net['b'] = net_b.to(self.device)
-        self.optimizer = {
-            'f': torch.optim.Adam(self.net['f'].parameters(), lr=self.lr),
-            'b': torch.optim.Adam(self.net['b'].parameters(), lr=self.lr)
+        self.gammas = torch.tensor(gammas).to(self.device)
+        self.T = torch.sum(self.gammas)
+
+        # Models
+        self.nets = torch.nn.ModuleDict({
+            'f': self._build_unet(),
+            'b': self._build_unet()
+        })
+
+        # Optimizers
+        self.opts = {
+            'f': torch.optim.Adam(self.nets['f'].parameters(), lr=cfg.LR),
+            'b': torch.optim.Adam(self.nets['b'].parameters(), lr=cfg.LR)
         }
-        # Préparer les optimizers une seule fois avec accelerate
-        self.net['f'] = self.accelerator.prepare(self.net['f'])
-        self.net['b'] = self.accelerator.prepare(self.net['b'])
-        self.optimizer['f'] = self.accelerator.prepare(self.optimizer['f'])
-        self.optimizer['b'] = self.accelerator.prepare(self.optimizer['b'])
-        self.ema_helpers = {
+
+        # EMA
+        self.emas = {
             'f': EMAHelper(mu=cfg.EMA_RATE, device=self.device),
             'b': EMAHelper(mu=cfg.EMA_RATE, device=self.device)
         }
-        # Note: Si tu utilises accelerate, l'accès aux paramètres peut nécessiter .module si c'est wrappé
-        # Mais EMAHelper gère déjà DataParallel, donc ça devrait aller.
-        self.ema_helpers['f'].register(self.net['f'])
-        self.ema_helpers['b'].register(self.net['b'])
+        self.emas['f'].register(self.nets['f'])
+        self.emas['b'].register(self.nets['b'])
 
+        # Data & Langevin
         init_ds, final_ds, mean_final, var_final = get_datasets()
         self.mean_final = mean_final.to(self.device)
         self.var_final = var_final.to(self.device)
         self.std_final = torch.sqrt(var_final).to(self.device)
 
-        dl_kwargs = {"num_workers": cfg.NUM_WORKERS, "drop_last": True, "shuffle": True}
-        self.cache_init_dl = repeater(self.accelerator.prepare(DataLoader(init_ds, batch_size=cfg.CACHE_NPAR, **dl_kwargs)))
-        self.cache_final_dl = repeater(self.accelerator.prepare(DataLoader(final_ds, batch_size=cfg.CACHE_NPAR, **dl_kwargs))) if self.transfer else None
+        dl_args = {"num_workers": cfg.NUM_WORKERS, "drop_last": True, "shuffle": True}
+        self.dl_init = repeater(self.accelerator.prepare(DataLoader(init_ds, batch_size=cfg.CACHE_NPAR, **dl_args)))
+        self.dl_final = repeater(self.accelerator.prepare(DataLoader(final_ds, batch_size=cfg.CACHE_NPAR, **dl_args))) if self.transfer else None
 
-        prob_vec = gammas * 0 + 1
-        time_sampler = torch.distributions.categorical.Categorical(prob_vec)
-        dummy_batch = next(self.cache_init_dl)[0]
-        self.langevin = Langevin(self.num_steps, dummy_batch.shape[1:], gammas, time_sampler, 
-                                device=self.device, mean_final=self.mean_final, var_final=self.var_final)
+        # Prepare everything with Accelerator
+        self.nets['f'], self.opts['f'] = self.accelerator.prepare(self.nets['f'], self.opts['f'])
+        self.nets['b'], self.opts['b'] = self.accelerator.prepare(self.nets['b'], self.opts['b'])
+
+        # Langevin setup
+        dummy = next(self.dl_init)[0]
+        self.langevin = Langevin(
+            self.num_steps, dummy.shape[1:], self.gammas, 
+            device=self.device, mean_final=self.mean_final, var_final=self.var_final
+        )
+
         os.makedirs('./checkpoints', exist_ok=True)
 
-    def new_cacheloader(self, forward_or_backward, n, transfer=None):
-        sample_dir = 'f' if forward_or_backward == 'b' else 'b'
-        sample_net = self.ema_helpers[sample_dir].ema_copy(self.net[sample_dir])
-        if transfer is None:
-            transfer = self.transfer
-        if forward_or_backward == 'b':
-            dl = CacheLoader('b', sample_net, self.cache_init_dl, cfg.NUM_CACHE_BATCHES, 
-                             self.langevin, n, mean=None, std=None, batch_size=cfg.CACHE_NPAR, 
-                             device=self.device, dataloader_f=self.cache_final_dl, transfer=transfer)
-        else:
-            dl = CacheLoader('f', sample_net, None, cfg.NUM_CACHE_BATCHES, 
-                             self.langevin, n, mean=self.mean_final, std=self.std_final, batch_size=cfg.CACHE_NPAR, 
-                             device=self.device, dataloader_f=self.cache_final_dl, transfer=transfer)
-        return repeater(self.accelerator.prepare(DataLoader(
-            dl, 
-            batch_size=self.batch_size, 
-            num_workers=0
-        )))
+    def _build_unet(self):
+        att_ds = tuple(256 // int(res) for res in cfg.ATTENTION_RESOLUTIONS.split(","))
+        return UNetModel(
+            model_channels=cfg.NUM_CHANNELS,
+            num_res_blocks=cfg.NUM_RES_BLOCKS,
+            attention_resolutions=att_ds,
+            dropout=cfg.DROPOUT,
+            channel_mult=(1, 1, 2, 2, 4, 4)
+        )
 
-    def save_checkpoint(self, fb, n, i):
+    def get_cache_loader(self, direction, n):
+        # Determine source direction and settings
+        is_b = (direction == 'b')
+        src_dir = 'f' if is_b else 'b'
+        
+        # Get EMA sample net
+        sample_net = self.emas[src_dir].ema_copy(self.nets[src_dir])
+        
+        loader = CacheLoader(
+            direction, sample_net, 
+            dataloader_b=self.dl_init, 
+            dataloader_f=self.dl_final,
+            num_batches=cfg.NUM_CACHE_BATCHES,
+            langevin=self.langevin, 
+            n=n, 
+            mean=None if is_b else self.mean_final,
+            std=None if is_b else self.std_final,
+            batch_size=cfg.CACHE_NPAR,
+            device=self.device,
+            transfer=self.transfer
+        )
+        
+        return repeater(self.accelerator.prepare(DataLoader(loader, batch_size=self.batch_size, num_workers=0)))
+
+    def save(self, direction, n):
         if self.accelerator.is_local_main_process:
-            filename = f'./checkpoints/net_{fb}_{n}.ckpt'
+            path = f'./checkpoints/net_{direction}_{n}.ckpt'
+            model = self.emas[direction].ema_copy(self.nets[direction])
+            torch.save(model.state_dict(), path)
 
-            print(f"Saving EMA weights to {filename}")
-            model_to_save = self.ema_helpers[fb].ema_copy(self.net[fb])
-            torch.save(model_to_save.state_dict(), filename)
-
-    def ipf_step(self, fb, n):
-            print(f"Starting IPF step {n} for direction {fb}")
-            train_dl = self.new_cacheloader(fb, n)
-
-            import time as _time
-            for i in tqdm(range(cfg.NUM_ITER)):
-                # ... (chargement des données identique) ...
-                x, out, steps_expanded = next(train_dl)
-                eval_steps = self.T - steps_expanded.to(self.device)
-                x = x.to(self.device)
-                out = out.to(self.device)
-
-                # Forward
-                # Accelerate gère l'autocast ici si initialisé avec mixed_precision='fp16'
-                # Mais le contexte explicite ne fait pas de mal dans les boucles complexes.
-                with self.accelerator.autocast():
-                    pred = self.net[fb](x, eval_steps) - x
-                loss = F.mse_loss(pred, out)
+    def ipf_step(self, direction, n):
+        loader = self.get_cache_loader(direction, n)
+        
+        pbar = tqdm(range(cfg.NUM_ITER), disable=not self.accelerator.is_local_main_process)
+        for i in pbar:
+            # Refresh cache periodically
+            if i > 0 and i % cfg.CACHE_REFRESH_STRIDE == 0:
+                loader = self.get_cache_loader(direction, n)
             
-                # Backward
-                self.accelerator.backward(loss)
-                
-                # Clipping & Step (SIMPLIFIÉ)
-                self.accelerator.clip_grad_norm_(self.net[fb].parameters(), cfg.GRAD_CLIP)
-
-                self.optimizer[fb].step()
-                self.optimizer[fb].zero_grad()
-
-                self.ema_helpers[fb].update(self.net[fb])
-
-                # Refresh du cache
-                if i > 0 and i % cfg.CACHE_REFRESH_STRIDE == 0:
-                    train_dl = self.new_cacheloader(fb, n)
+            x, out, steps = next(loader)
             
-            self.save_checkpoint(fb, n, cfg.NUM_ITER)
+            # Forward pass
+            # Note: steps are flipped for network input vs langevin recording
+            t = self.T - steps.to(self.device)
+            pred = self.nets[direction](x, t) - x
+            
+            loss = F.mse_loss(pred, out)
+            
+            # Optimization
+            self.opts[direction].zero_grad()
+            self.accelerator.backward(loss)
+            self.accelerator.clip_grad_norm_(self.nets[direction].parameters(), cfg.GRAD_CLIP)
+            self.opts[direction].step()
+            
+            self.emas[direction].update(self.nets[direction])
+            
+            pbar.set_description(f"IPF {n} ({direction}) | Loss: {loss.item():.4f}")
+
+        self.save(direction, n)
 
     def train(self):
+        print("Training Started...")
         for n in range(1, self.n_ipf + 1):
             self.ipf_step('b', n)
             self.ipf_step('f', n)
 
-print('debut entrainement')
-trainer = IPFTrainer()
-trainer.train()
+if __name__ == "__main__":
+    IPFTrainer().train()
