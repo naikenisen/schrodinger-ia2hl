@@ -9,30 +9,30 @@ LOAD = False
 
 # ----- Modèle (UNET) -----
 MODEL = "UNET"
-NUM_CHANNELS = 32
+NUM_CHANNELS = 128
 NUM_RES_BLOCKS = 2
 NUM_HEADS = 4
 NUM_HEADS_UPSAMPLE = -1
-ATTENTION_RESOLUTIONS = "16"
+ATTENTION_RESOLUTIONS = "16.32"
 DROPOUT = 0.0
 USE_CHECKPOINT = False
 USE_SCALE_SHIFT_NORM = True
 
 import torch
 # ----- Device -----
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = "cuda"
 DATAPARALLEL = True
-NUM_WORKERS = 16  # Augmenté pour accélérer le dataloader
+NUM_WORKERS = 8  # Augmenté pour accélérer le dataloader
 PIN_MEMORY = True
 
 # ----- Mixed Precision (fp16) -----
 USE_FP16 = True  # Active le mode fp16/mixed precision pour accélérer l'entraînement sur V100
 
 # ----- Entraînement -----
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 LR = 1e-4
-NUM_ITER = 50000
-N_IPF = 20
+NUM_ITER = 10000
+N_IPF = 15
 N_IPF_INIT = 1
 CACHE_NPAR = 32
 NUM_CACHE_BATCHES = 10
