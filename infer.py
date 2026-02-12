@@ -114,7 +114,17 @@ def save_results(input_batch, output_batch, output_dir, batch_idx, paired_files=
         axes[1].imshow(cd30_virtual_img)
         axes[1].set_title('CD30 virtuel')
         axes[1].axis('off')
-        axes[2].imshow(cd30_real_img)
+        if cd30_real_img is None:
+            arr = np.zeros((hes_img.size[1], hes_img.size[0], 3), dtype=np.uint8)
+        else:
+            arr = np.array(cd30_real_img)
+            if arr is None or arr.dtype != np.uint8:
+                arr = np.zeros((hes_img.size[1], hes_img.size[0], 3), dtype=np.uint8)
+        try:
+            axes[2].imshow(arr)
+        except Exception as e:
+            axes[2].imshow(np.zeros((hes_img.size[1], hes_img.size[0], 3), dtype=np.uint8))
+            axes[2].set_title(f'CD30 réel (erreur)')
         axes[2].set_title('CD30 réel')
         axes[2].axis('off')
 
@@ -141,18 +151,22 @@ def run_inference(ckpt_path, output_dir='./results'):
     langevin = Langevin(cfg.NUM_STEPS, (cfg.CHANNELS, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE), gammas, device=device, mean_match=cfg.MEAN_MATCH)
 
     test_loader = get_test_dataloader()
+    test_dataset = test_loader.dataset
+    paired_files = test_dataset.paired_files
+    cd30_dir = test_dataset.cd30_dir
 
     print("Starting generation...")
     with torch.no_grad():
         for i, data in tqdm(enumerate(test_loader)):
-            if isinstance(data, list):
+            # data = (img, fname) par batch
+            if isinstance(data, tuple) or isinstance(data, list):
                 batch = data[0].to(device)
             else:
                 batch = data.to(device)
             _, final_image = langevin.sample(net, batch)
-            save_results(batch, final_image, output_dir, i)
+            save_results(batch, final_image, output_dir, i, paired_files, cd30_dir)
 
-checkpoint = './checkpoints/bridge_epoch_10.ckpt' # Exemple de chemin vers un checkpoint
-out_dir = './results' # Exemple de répertoire de sortie
+checkpoint = 'checkpoints/net_f_1.ckpt' # Exemple de chemin vers un checkpoint
+out_dir = 'results' # Exemple de répertoire de sortie
 
 run_inference(checkpoint, out_dir)

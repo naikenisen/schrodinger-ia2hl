@@ -106,11 +106,11 @@ def get_datasets():
 
 def get_test_dataloader():
     """Charge le Dataset de TEST spécifiquement"""
-    test_transform = [
+    test_transform = transforms.Compose([
         transforms.Resize(cfg.IMAGE_SIZE),
         transforms.ToTensor()
-    ]
-    
+    ])
+
     root = os.path.join(cfg.DATA_DIR, 'dataset_v4')
     test_ds = dataloader(root, image_size=cfg.IMAGE_SIZE, domain='HES', transform=test_transform, split ='test')
 
