@@ -144,11 +144,9 @@ class UNetModel(nn.Module):
         )
 
     def forward(self, x, timesteps):
-
         timesteps = timesteps.squeeze()
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
-
         h = x
         for module in self.input_blocks:
             h = module(h, emb)
