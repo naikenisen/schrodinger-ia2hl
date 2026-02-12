@@ -376,8 +376,13 @@ class IPFTrainer(torch.nn.Module):
             
             # Clipping et Step
             if cfg.GRAD_CLIPPING:
-                self.accelerator.clip_grad_norm_(self.net[fb].parameters(), cfg.GRAD_CLIP)
-            
+                if self.use_fp16:
+                    # fp16 : unscale puis clip avec torch
+                    self.scaler.unscale_(self.optimizer[fb])
+                    torch.nn.utils.clip_grad_norm_(self.net[fb].parameters(), cfg.GRAD_CLIP)
+                else:
+                    self.accelerator.clip_grad_norm_(self.net[fb].parameters(), cfg.GRAD_CLIP)
+
             self.optimizer[fb].step()
             self.optimizer[fb].zero_grad()
             t7 = _time.time()
