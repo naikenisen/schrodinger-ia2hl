@@ -83,15 +83,19 @@ def get_model(device):
 
     attention_ds = [image_size // int(res) for res in cfg.ATTENTION_RESOLUTIONS.split(",")]
 
-    kwargs = {
-        "in_channels": cfg.CHANNELS, "model_channels": cfg.NUM_CHANNELS,
-        "out_channels": cfg.CHANNELS, "num_res_blocks": cfg.NUM_RES_BLOCKS,
-        "attention_resolutions": tuple(attention_ds), "dropout": cfg.DROPOUT,
-        "channel_mult": channel_mult, "use_checkpoint": cfg.USE_CHECKPOINT,
-        "num_heads": cfg.NUM_HEADS, "num_heads_upsample": cfg.NUM_HEADS_UPSAMPLE,
-        "use_scale_shift_norm": cfg.USE_SCALE_SHIFT_NORM,
-    }
-    net = UNetModel(**kwargs)
+    net = UNetModel(
+    in_channels=cfg.CHANNELS,
+    model_channels=cfg.NUM_CHANNELS,
+    out_channels=cfg.CHANNELS,
+    num_res_blocks=cfg.NUM_RES_BLOCKS,
+    attention_resolutions=tuple(attention_ds),
+    dropout=cfg.DROPOUT,
+    channel_mult=channel_mult,
+    use_checkpoint=cfg.USE_CHECKPOINT,
+    num_heads=cfg.NUM_HEADS,
+    num_heads_upsample=cfg.NUM_HEADS_UPSAMPLE,
+    use_scale_shift_norm=cfg.USE_SCALE_SHIFT_NORM)
+    
     return net.to(device)
 
 def get_test_dataloader():
