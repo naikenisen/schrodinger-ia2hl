@@ -75,13 +75,8 @@ def get_model(device):
     - les deux réseaux apprennent à se "répondre" via IPF.
     """
     image_size = cfg.IMAGE_SIZE
-    if image_size == 256: channel_mult = (1, 1, 2, 2, 4, 4)
-    elif image_size == 64: channel_mult = (1, 2, 3, 4)
-    elif image_size == 32: channel_mult = (1, 2, 2, 2)
-    else: raise ValueError(f"unsupported image size: {image_size}")
-
+    channel_mult = (1, 1, 2, 2, 4, 4)
     attention_ds = [image_size // int(res) for res in cfg.ATTENTION_RESOLUTIONS.split(",")]
-
     net = UNetModel(
     in_channels=cfg.CHANNELS,
     model_channels=cfg.NUM_CHANNELS,
@@ -89,7 +84,7 @@ def get_model(device):
     num_res_blocks=cfg.NUM_RES_BLOCKS,
     attention_resolutions=tuple(attention_ds),
     dropout=cfg.DROPOUT,
-    channel_mult=channel_mult,
+    channel_mult= channel_mult,
     use_checkpoint=cfg.USE_CHECKPOINT,
     num_heads=cfg.NUM_HEADS,
     num_heads_upsample=cfg.NUM_HEADS_UPSAMPLE,
