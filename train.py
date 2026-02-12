@@ -220,16 +220,30 @@ def get_models():
 
     attention_ds = [image_size // int(res) for res in cfg.ATTENTION_RESOLUTIONS.split(",")]
 
-    kwargs = {
-        "in_channels": cfg.CHANNELS, "model_channels": cfg.NUM_CHANNELS,
-        "out_channels": cfg.CHANNELS, "num_res_blocks": cfg.NUM_RES_BLOCKS,
-        "attention_resolutions": tuple(attention_ds), "dropout": cfg.DROPOUT,
-        "channel_mult": channel_mult, "use_checkpoint": cfg.USE_CHECKPOINT,
-        "num_heads": cfg.NUM_HEADS, "num_heads_upsample": cfg.NUM_HEADS_UPSAMPLE,
-        "use_scale_shift_norm": cfg.USE_SCALE_SHIFT_NORM,
-    }
-    net_f = UNetModel(**kwargs)
-    net_b = UNetModel(**kwargs)
+    net_f = UNetModel(
+        in_channels=cfg.CHANNELS,
+        model_channels=cfg.NUM_CHANNELS,
+        out_channels=cfg.CHANNELS,
+        num_res_blocks=cfg.NUM_RES_BLOCKS,
+        attention_resolutions=tuple(attention_ds),
+        dropout=cfg.DROPOUT,
+        channel_mult=channel_mult,
+        num_heads=cfg.NUM_HEADS,
+        num_heads_upsample=cfg.NUM_HEADS_UPSAMPLE,
+        use_scale_shift_norm=cfg.USE_SCALE_SHIFT_NORM,
+    )
+    net_b = UNetModel(
+        in_channels=cfg.CHANNELS,
+        model_channels=cfg.NUM_CHANNELS,
+        out_channels=cfg.CHANNELS,
+        num_res_blocks=cfg.NUM_RES_BLOCKS,
+        attention_resolutions=tuple(attention_ds),
+        dropout=cfg.DROPOUT,
+        channel_mult=channel_mult,
+        num_heads=cfg.NUM_HEADS,
+        num_heads_upsample=cfg.NUM_HEADS_UPSAMPLE,
+        use_scale_shift_norm=cfg.USE_SCALE_SHIFT_NORM,
+    )
     
     # NOTE: Pas de conversion .half() ici, Accelerate s'en charge.
     return net_f, net_b
@@ -294,7 +308,6 @@ class IPFTrainer(torch.nn.Module):
         self.langevin = Langevin(self.num_steps, dummy_batch.shape[1:], gammas, time_sampler, 
                                 device=self.device, mean_final=self.mean_final, var_final=self.var_final, 
                                 mean_match=cfg.MEAN_MATCH)
-        self.logger = _CSVLogger(cfg.CSV_LOG_DIR, name='logs')
         os.makedirs('./checkpoints', exist_ok=True)
 
     def new_cacheloader(self, forward_or_backward, n):
