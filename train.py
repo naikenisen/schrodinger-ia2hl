@@ -201,7 +201,6 @@ class CacheLoader(Dataset):
                 self.steps_data[b] = steps_expanded.cpu().flatten(start_dim=0, end_dim=1)
                 
                 del x, out, batch_data
-                torch.cuda.empty_cache()
 
         self.data = self.data.flatten(start_dim=0, end_dim=1)
         self.steps_data = self.steps_data.flatten(start_dim=0, end_dim=1)
@@ -251,7 +250,7 @@ class IPFTrainer(torch.nn.Module):
     """
     def __init__(self):
         super().__init__()
-        self.accelerator = Accelerator(mixed_precision="no", cpu= cfg.DEVICE)
+        self.accelerator = Accelerator(mixed_precision="fp16", cpu=False)
         self.device = self.accelerator.device
         self.n_ipf = cfg.N_IPF
         self.num_steps = cfg.NUM_STEPS
