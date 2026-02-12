@@ -14,13 +14,13 @@ class GroupNorm32(nn.GroupNorm):
     def forward(self, x):
         return super().forward(x.to(self.weight.dtype))
 
-def conv_nd(dims, *args, **kwargs):
+def conv_nd(*args, **kwargs):
     return nn.Conv2d(*args, **kwargs)
 
 def linear(*args, **kwargs):
     return nn.Linear(*args, **kwargs)
 
-def avg_pool_nd(dims, *args, **kwargs):
+def avg_pool_nd(*args, **kwargs):
     return nn.AvgPool2d(*args, **kwargs)
 
 def update_ema(target_params, source_params, rate=0.99):
@@ -111,13 +111,12 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
 
 class Upsample(nn.Module):
 
-    def __init__(self, channels, use_conv, dims=2):
+    def __init__(self, channels, use_conv):
         super().__init__()
         self.channels = channels
         self.use_conv = use_conv
-        self.dims = dims
         if use_conv:
-            self.conv = conv_nd(dims, channels, channels, 3, padding=1)
+            self.conv = conv_nd(channels, channels, 3, padding=1)
 
     def forward(self, x):
         assert x.shape[1] == self.channels
@@ -129,14 +128,13 @@ class Upsample(nn.Module):
 
 class Downsample(nn.Module):
 
-    def __init__(self, channels, use_conv, dims=2):
+    def __init__(self, channels, use_conv):
         super().__init__()
         self.channels = channels
         self.use_conv = use_conv
-        self.dims = dims
         stride = 2
         if use_conv:
-            self.op = conv_nd(dims, channels, channels, 3, stride=stride, padding=1)
+            self.op = conv_nd(channels, channels, 3, stride=stride, padding=1)
         else:
             self.op = avg_pool_nd(stride)
 
@@ -155,7 +153,6 @@ class ResBlock(TimestepBlock):
         out_channels=None,
         use_conv=False,
         use_scale_shift_norm=False,
-        dims=2,
         use_checkpoint=False,
     ):
         super().__init__()
@@ -170,7 +167,7 @@ class ResBlock(TimestepBlock):
         self.in_layers = nn.Sequential(
             normalization(channels),
             SiLU(),
-            conv_nd(dims, channels, self.out_channels, 3, padding=1),
+            conv_nd(channels, self.out_channels, 3, padding=1),
         )
         self.emb_layers = nn.Sequential(
             SiLU(),
@@ -184,18 +181,16 @@ class ResBlock(TimestepBlock):
             SiLU(),
             nn.Dropout(p=dropout),
             zero_module(
-                conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)
+                conv_nd(self.out_channels, self.out_channels, 3, padding=1)
             ),
         )
 
         if self.out_channels == channels:
             self.skip_connection = nn.Identity()
         elif use_conv:
-            self.skip_connection = conv_nd(
-                dims, channels, self.out_channels, 3, padding=1
-            )
+            self.skip_connection = conv_nd(channels, self.out_channels, 3, padding=1)
         else:
-            self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
+            self.skip_connection = conv_nd(channels, self.out_channels, 1)
 
     def forward(self, x, emb):
         return checkpoint(

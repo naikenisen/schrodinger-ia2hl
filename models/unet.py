@@ -15,7 +15,6 @@ class UNetModel(nn.Module):
         dropout: float = 0,
         channel_mult=(1, 2, 4, 8),
         conv_resample=True,
-        dims=2,
         num_classes=None,
         num_heads_upsample=-1,
         use_scale_shift_norm=True,
@@ -33,7 +32,7 @@ class UNetModel(nn.Module):
                         dropout,
                         channel_mult,
                         conv_resample,
-                        dims,
+                        2,
                         num_classes,
                         num_heads,
                         num_heads_upsample,
@@ -47,7 +46,7 @@ class UNetModel(nn.Module):
         self.dropout = dropout
         self.channel_mult = channel_mult
         self.conv_resample = conv_resample
-        self.num_classes = num_classes
+        self.num_classes = None
         self.num_heads = num_heads
         self.num_heads_upsample = num_heads_upsample
 
@@ -58,13 +57,12 @@ class UNetModel(nn.Module):
             linear(time_embed_dim, time_embed_dim),
         )
 
-        if self.num_classes is not None:
-            self.label_emb = nn.Embedding(num_classes, time_embed_dim)
+        # No class embedding for virtual staining
 
         self.input_blocks = nn.ModuleList(
             [
                 TimestepEmbedSequential(
-                    conv_nd(dims, in_channels, model_channels, 3, padding=1)
+                    conv_nd(in_channels, model_channels, 3, padding=1)
                 )
             ]
         )
@@ -79,7 +77,6 @@ class UNetModel(nn.Module):
                         time_embed_dim,
                         dropout,
                         out_channels=mult * model_channels,
-                        dims=dims,
                         use_scale_shift_norm=use_scale_shift_norm,
                     )
                 ]
@@ -94,7 +91,7 @@ class UNetModel(nn.Module):
                 input_block_chans.append(ch)
             if level != len(channel_mult) - 1:
                 self.input_blocks.append(
-                    TimestepEmbedSequential(Downsample(ch, conv_resample, dims=dims))  # type: ignore
+                    TimestepEmbedSequential(Downsample(ch, conv_resample))  # type: ignore
                 )
                 input_block_chans.append(ch)
                 ds *= 2
@@ -104,7 +101,6 @@ class UNetModel(nn.Module):
                 ch,
                 time_embed_dim,
                 dropout,
-                dims=dims,
                 use_scale_shift_norm=use_scale_shift_norm,
             ),
             AttentionBlock(ch, num_heads=num_heads),
@@ -112,7 +108,6 @@ class UNetModel(nn.Module):
                 ch,
                 time_embed_dim,
                 dropout,
-                dims=dims,
                 use_scale_shift_norm=use_scale_shift_norm,
             ),
         )  # type: ignore
@@ -126,7 +121,6 @@ class UNetModel(nn.Module):
                         time_embed_dim,
                         dropout,
                         out_channels=model_channels * mult,
-                        dims=dims,
                         use_scale_shift_norm=use_scale_shift_norm,
                     )
                 ]
@@ -139,31 +133,23 @@ class UNetModel(nn.Module):
                         )  # type: ignore
                     )
                 if level and i == num_res_blocks:
-                    layers.append(Upsample(ch, conv_resample, dims=dims))  # type: ignore
+                    layers.append(Upsample(ch, conv_resample))  # type: ignore
                     ds //= 2
                 self.output_blocks.append(TimestepEmbedSequential(*layers))  # type: ignore
 
         self.out = nn.Sequential(
             normalization(ch),
             SiLU(),
-            zero_module(conv_nd(dims, model_channels, out_channels, 3, padding=1)),
+            zero_module(conv_nd(model_channels, out_channels, 3, padding=1)),
         )
 
-    def forward(self, x, timesteps, y=None):
+    def forward(self, x, timesteps):
 
         timesteps = timesteps.squeeze()
-        assert (y is not None) == (
-            self.num_classes is not None
-        ), "must specify y if and only if the model is class-conditional"
-
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
 
-        if self.num_classes is not None:
-            assert y.shape == (x.shape[0],)
-            emb = emb + self.label_emb(y)
-
-        h = x#.type(self.inner_dtype)
+        h = x
         for module in self.input_blocks:
             h = module(h, emb)
             hs.append(h)
