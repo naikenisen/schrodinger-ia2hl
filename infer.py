@@ -11,8 +11,7 @@ from PIL import Image
 import config as cfg
 from models.unet import UNetModel
 from dataloader import dataloader
-# il faudrait produire des image HES, CD30 virtual et et CD30 real + ecrire legende deesous image avec matplotlib
-# revérifier si il va bien infer. py va bien de HES en entrée  vers CD30 en sortie 
+
 
 class Langevin(torch.nn.Module):
     """
@@ -95,7 +94,7 @@ def get_model(device):
     num_heads=cfg.NUM_HEADS,
     num_heads_upsample=cfg.NUM_HEADS_UPSAMPLE,
     use_scale_shift_norm=cfg.USE_SCALE_SHIFT_NORM)
-    
+
     return net.to(device)
 
 def get_test_dataloader():
@@ -112,10 +111,50 @@ def get_test_dataloader():
     loader = DataLoader(test_ds, batch_size=cfg.BATCH_SIZE, shuffle=False, num_workers=cfg.NUM_WORKERS)
     return loader
 
-def save_results(input_batch, output_batch, output_dir, batch_idx):
-    """Sauvegarde les images input vs output"""
-    comparison = torch.cat([input_batch, output_batch], dim=3)
-    vutils.save_image(comparison, f"{output_dir}/pred_{batch_idx}.png", nrow=4, normalize=False)
+import matplotlib.pyplot as plt
+from torchvision.transforms.functional import to_pil_image
+import os
+from PIL import Image
+
+def save_results(input_batch, output_batch, output_dir, batch_idx, paired_files=None, cd30_dir=None):
+    """
+    Sauvegarde HES (input), CD30 virtuel (output), CD30 réel (paired) côte à côte avec légende sous chaque image.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    batch_size = input_batch.shape[0]
+    for i in range(batch_size):
+        hes_img = to_pil_image(input_batch[i].cpu())
+        cd30_virtual_img = to_pil_image(output_batch[i].cpu())
+        cd30_real_img = None
+        fname = None
+        if paired_files is not None and cd30_dir is not None:
+            fname = paired_files[batch_idx * batch_size + i]
+            cd30_real_path = os.path.join(cd30_dir, fname)
+            cd30_real_img = Image.open(cd30_real_path).convert('RGB')
+
+        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+        axes[0].imshow(hes_img)
+        axes[0].set_title('HES')
+        axes[0].axis('off')
+        axes[1].imshow(cd30_virtual_img)
+        axes[1].set_title('CD30 virtuel')
+        axes[1].axis('off')
+        if cd30_real_img is not None:
+            axes[2].imshow(cd30_real_img)
+            axes[2].set_title('CD30 réel')
+            axes[2].axis('off')
+        else:
+            axes[2].imshow(np.zeros((hes_img.size[1], hes_img.size[0], 3), dtype=np.uint8))
+            axes[2].set_title('CD30 réel (absent)')
+            axes[2].axis('off')
+
+        # Légende sous chaque image
+        for ax in axes:
+            ax.set_xlabel('')
+        plt.tight_layout()
+        out_name = f"{output_dir}/pred_{batch_idx}_{i}.png"
+        plt.savefig(out_name)
+        plt.close(fig)
 
 def run_inference(ckpt_path, output_dir='./results'):
     device = torch.device(cfg.DEVICE)
