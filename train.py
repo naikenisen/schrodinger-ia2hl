@@ -212,15 +212,6 @@ class CacheLoader(Dataset):
         return self.data.shape[0]
 
 def get_models():
-    """
-    Construit deux réseaux UNet :
-    - net_f : réseau "forward"
-    - net_b : réseau "backward"
-
-    Concept :
-    - le Schrödinger Bridge entraîne deux directions (aller/retour)
-    - les deux réseaux apprennent à se "répondre" via IPF.
-    """
     image_size = cfg.IMAGE_SIZE
     if image_size == 256: channel_mult = (1, 1, 2, 2, 4, 4)
     elif image_size == 64: channel_mult = (1, 2, 3, 4)
@@ -239,9 +230,8 @@ def get_models():
     }
     net_f = UNetModel(**kwargs)
     net_b = UNetModel(**kwargs)
-    if getattr(cfg, 'USE_FP16', False):
-        net_f = net_f.half()
-        net_b = net_b.half()
+    
+    # NOTE: Pas de conversion .half() ici, Accelerate s'en charge.
     return net_f, net_b
 
 class IPFTrainer(torch.nn.Module):
@@ -339,68 +329,47 @@ class IPFTrainer(torch.nn.Module):
                 torch.save(self.net[fb].state_dict(), filename)
 
     def ipf_step(self, fb, n):
-        print(f"Starting IPF step {n} for direction {fb}")
-        train_dl = self.new_cacheloader(fb, n)
+            print(f"Starting IPF step {n} for direction {fb}")
+            train_dl = self.new_cacheloader(fb, n)
 
-        import time as _time
-        for i in tqdm(range(cfg.NUM_ITER)):
-            t0 = _time.time()
-            x, out, steps_expanded = next(train_dl)
-            t1 = _time.time()
-            eval_steps = self.T - steps_expanded.to(self.device)
-            t2 = _time.time()
-            # Note: avec accelerate.prepare(dataloader), les données sont souvent déjà sur le bon device
-            # mais ça ne fait pas de mal de s'en assurer.
-            x = x.to(self.device)
-            out = out.to(self.device)
-            t3 = _time.time()
+            import time as _time
+            for i in tqdm(range(cfg.NUM_ITER)):
+                # ... (chargement des données identique) ...
+                x, out, steps_expanded = next(train_dl)
+                eval_steps = self.T - steps_expanded.to(self.device)
+                x = x.to(self.device)
+                out = out.to(self.device)
 
-            # Forward
-            t4 = _time.time()
-            
-            # --- CORRECTION MAJEURE ICI ---
-            # On utilise le contexte autocast d'accelerate
-            with self.accelerator.autocast():
-                if cfg.MEAN_MATCH:
-                    pred = self.net[fb](x, eval_steps) - x
-                else:
-                    pred = self.net[fb](x, eval_steps)
-                loss = F.mse_loss(pred, out)
-            
-            t5 = _time.time()
-            
-            # Backward géré par accelerate (qui gère le scaling en interne)
-            self.accelerator.backward(loss)
-            
-            t6 = _time.time()
-            
-            # Clipping et Step
-            if cfg.GRAD_CLIPPING:
-                if self.use_fp16:
-                    # fp16 : unscale puis clip avec torch
-                    self.scaler.unscale_(self.optimizer[fb])
-                    torch.nn.utils.clip_grad_norm_(self.net[fb].parameters(), cfg.GRAD_CLIP)
-                else:
+                # Forward
+                # Accelerate gère l'autocast ici si initialisé avec mixed_precision='fp16'
+                # Mais le contexte explicite ne fait pas de mal dans les boucles complexes.
+                with self.accelerator.autocast():
+                    if cfg.MEAN_MATCH:
+                        pred = self.net[fb](x, eval_steps) - x
+                    else:
+                        pred = self.net[fb](x, eval_steps)
+                    loss = F.mse_loss(pred, out)
+                
+                # Backward
+                self.accelerator.backward(loss)
+                
+                # Clipping & Step (SIMPLIFIÉ)
+                if cfg.GRAD_CLIPPING:
                     self.accelerator.clip_grad_norm_(self.net[fb].parameters(), cfg.GRAD_CLIP)
 
-            self.optimizer[fb].step()
-            self.optimizer[fb].zero_grad()
-            t7 = _time.time()
-            # ------------------------------
+                self.optimizer[fb].step()
+                self.optimizer[fb].zero_grad()
 
-            # EMA
-            t8 = _time.time()
-            if cfg.EMA:
-                self.ema_helpers[fb].update(self.net[fb])
-            t9 = _time.time()
+                # EMA
+                if cfg.EMA:
+                    self.ema_helpers[fb].update(self.net[fb])
 
-            # Logging
-
-            if i > 0 and i % cfg.CACHE_REFRESH_STRIDE == 0:
-                train_dl = self.new_cacheloader(fb, n)
-
-        self.save_checkpoint(fb, n, cfg.NUM_ITER)
-        self.logger.save()
+                # Refresh du cache
+                if i > 0 and i % cfg.CACHE_REFRESH_STRIDE == 0:
+                    train_dl = self.new_cacheloader(fb, n)
+            
+            self.save_checkpoint(fb, n, cfg.NUM_ITER)
+            self.logger.save()
 
     def train(self):
         for n in range(1, self.n_ipf + 1):
