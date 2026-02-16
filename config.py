@@ -1,82 +1,27 @@
-"""
-Configuration pour l'entraînement DSB : HES -> CD30 virtual staining.
-Tous les hyperparamètres sont centralisés ici.
-Modifier directement les valeurs ci-dessous.
-"""
-
-# ----- Dataset -----
-DATASET = "hes_cd30"
-DATASET_TRANSFER = "hes_cd30"
+# --- Architecture & Data ---
 IMAGE_SIZE = 256
-CHANNELS = 3
-RANDOM_FLIP = True
-DATA_DIR = "./"                          # dataset_v2/ doit être dans ce dossier
-TRANSFER = True                          # mode transfer : HES -> CD30
-LOAD = False
-
-# ----- Modèle (UNET) -----
-MODEL = "UNET"
-NUM_CHANNELS = 32
+NUM_CHANNELS = 128          # Augmenté (vs 64) pour plus de détails
 NUM_RES_BLOCKS = 2
-NUM_HEADS = 4
-NUM_HEADS_UPSAMPLE = -1
-ATTENTION_RESOLUTIONS = "16"
-DROPOUT = 0.0
-USE_CHECKPOINT = False
-USE_SCALE_SHIFT_NORM = True
+ATTENTION_RESOLUTIONS = "16" # Ajout de 32 pour la cohérence globale
+DROPOUT = 0.0               # OK, ou 0.1 si vous avez peu de données (<1000 paires)
 
-# ----- Device -----
-DEVICE = "cuda"                          # "cpu" si pas de GPU
-DATAPARALLEL = True
-NUM_WORKERS = 2
-PIN_MEMORY = True
-
-# ----- Entraînement -----
-BATCH_SIZE = 4
+# --- Training ---
+BATCH_SIZE = 8             # Compromis sûr avec 128 channels. Tentez 64 si ça passe.
 LR = 1e-4
-NUM_ITER = 50000
-N_IPF = 20
-N_IPF_INIT = 1
-CACHE_NPAR = 16
-NUM_CACHE_BATCHES = 1
-CACHE_REFRESH_STRIDE = 100
-USE_PREV_NET = True
-MEAN_MATCH = True
-
-# ----- EMA -----
-EMA = True
-EMA_RATE = 0.999
-
-# ----- Gradient clipping -----
-GRAD_CLIPPING = True
+NUM_ITER = 5000             # Suffisant par IPF step, permet de cycler plus vite
+N_IPF = 15                  # Très bien
 GRAD_CLIP = 1.0
 
-# ----- Schedule de diffusion -----
-NUM_STEPS = 30
-GAMMA_MAX = 0.1
+# --- Cache & Langevin (Schrödinger Bridge) ---
+# C'est ici que la VRAM aide le plus :
+CACHE_NPAR = 8             # Génération plus rapide (parallélisme accru)
+NUM_CACHE_BATCHES = 10      # 40 * 64 = 2560 images en cache (beaucoup plus stable)
+CACHE_REFRESH_STRIDE = 100  # On rafraîchit moins souvent car le cache est plus gros
+NUM_WORKERS = 2              # Pour accélérer le chargement du cache
+
+# --- Diffusion Physics ---
+NUM_STEPS = 20              # Bon compromis qualité/vitesse
+GAMMA_MAX = 0.1             # OK pour I2SB
 GAMMA_MIN = 1e-5
-GAMMA_SPACE = "linspace"                 # "linspace" ou "geomspace"
-WEIGHT_DISTRIB = True
-WEIGHT_DISTRIB_ALPHA = 100
-FAST_SAMPLING = True
-
-# ----- Gaussian final (non utilisé en mode transfer, mais requis) -----
-FINAL_ADAPTIVE = False
-ADAPTIVE_MEAN = False
-MEAN_FINAL = "torch.zeros([3, 256, 256])"
-VAR_FINAL = "torch.ones([3, 256, 256])"
-
-# ----- Logging -----
-LOGGER = "CSV"
-CSV_LOG_DIR = "./"
-LOG_STRIDE = 10
-GIF_STRIDE = 5000
-PLOT_NPAR = 16
-PLOT_LEVEL = 1
-
-# ----- Checkpoint -----
-CHECKPOINT_RUN = False
-CHECKPOINT_IT = 1
-CHECKPOINT_PASS = "b"
-SAMPLE_CHECKPOINT_F = ""
-SAMPLE_CHECKPOINT_B = ""
+GAMMA_SPACE = "linspace"
+EMA_RATE = 0.999
