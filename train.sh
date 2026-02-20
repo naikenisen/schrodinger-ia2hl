@@ -3,7 +3,6 @@
 #$ -o result.out
 #$ -j y
 #$ -N schrodinger
-#$ -l hostname=webern61
 cd $WORKDIR
 cd /beegfs/data/work/imvia/in156281/diffusion_schrodinger_bridge
 source /beegfs/data/work/imvia/in156281/diffusion_schrodinger_bridge/venv/bin/activate
