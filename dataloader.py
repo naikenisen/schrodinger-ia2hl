@@ -7,14 +7,14 @@ import config as cfg
 
 # --- Définition des chemins (pour référence ou usage global si besoin) ---
 # Ces chemins sont intégrés dans la logique de la classe ci-dessous.
-TRAIN_HES = "/work/imvia/in156281/ia2hl/dataset/train/HES"
-TRAIN_IHC = "/work/imvia/in156281/ia2hl/dataset/train/CD30"
+TRAIN_HES = "/work/imvia/in156281/ia2hl/dataset_tiled_512/train/HES"
+TRAIN_IHC = "/work/imvia/in156281/ia2hl/dataset_tiled_512/train/CD30"
 
-VALID_HES = "/work/imvia/in156281/ia2hl/dataset/valid/HES"
-VALID_IHC = "/work/imvia/in156281/ia2hl/dataset/valid/CD30" 
+VALID_HES = "/work/imvia/in156281/ia2hl/dataset_tiled_512/valid/HES"
+VALID_IHC = "/work/imvia/in156281/ia2hl/dataset_tiled_512/valid/CD30" 
 
-TEST_HES = "/work/imvia/in156281/ia2hl/dataset/test/HES"
-TEST_IHC = "/work/imvia/in156281/ia2hl/dataset/test/CD30"
+TEST_HES = "/work/imvia/in156281/ia2hl/dataset_tiled_512/test/HES"
+TEST_IHC = "/work/imvia/in156281/ia2hl/dataset_tiled_512/test/CD30"
 
 
 class PairedDataset(Dataset):
