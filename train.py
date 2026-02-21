@@ -115,7 +115,6 @@ class IPFTrainer:
 
     def ipf_step(self, direction, n):
         loader = self.get_cache_loader(direction, n)
-        
         pbar = tqdm(range(cfg.NUM_ITER), disable=not self.accelerator.is_local_main_process)
         for i in pbar:
             # Refresh cache periodically

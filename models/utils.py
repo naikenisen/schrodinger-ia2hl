@@ -122,7 +122,7 @@ class CacheLoader(Dataset):
         steps_list = []
 
         with torch.no_grad():
-            for b in tqdm(range(num_batches)):
+            for b in tqdm(range(num_batches), disable = True):
                 if fb == 'b':
                     batch = next(dataloader_b)[0].to(device)
                 elif fb == 'f':
