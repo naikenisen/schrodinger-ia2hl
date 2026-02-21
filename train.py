@@ -5,7 +5,7 @@ import numpy as np
 from tqdm import tqdm
 from accelerate import Accelerator
 from torch.utils.data import DataLoader
-
+import gc
 import config as cfg
 from dataloader import get_datasets
 from models.unet import UNetModel
@@ -85,27 +85,27 @@ class IPFTrainer:
         )
 
     def get_cache_loader(self, direction, n):
-        # Determine source direction and settings
-        is_b = (direction == 'b')
-        src_dir = 'f' if is_b else 'b'
+            # Determine source direction and settings
+            is_b = (direction == 'b')
+            src_dir = 'f' if is_b else 'b'
 
-        # Get EMA sample net
-        sample_net = self.emas[src_dir].ema_copy(self.nets[src_dir])
+            # Get EMA sample net
+            sample_net = self.emas[src_dir].ema_copy(self.nets[src_dir])
 
-        loader = CacheLoader(
-            direction, sample_net,
-            dataloader_b=self.dl_init,
-            dataloader_f=self.dl_final,
-            num_batches=cfg.NUM_CACHE_BATCHES,
-            langevin=self.langevin,
-            n=n,
-            mean=None if is_b else self.mean_final,
-            std=None if is_b else self.std_final,
-            batch_size=cfg.CACHE_NPAR,
-            device=self.device
-        )
+            loader = CacheLoader(
+                direction, sample_net,
+                dataloader_b=self.dl_init,
+                dataloader_f=self.dl_final,
+                num_batches=cfg.NUM_CACHE_BATCHES,
+                langevin=self.langevin,
+                n=n,
+                mean=None if is_b else self.mean_final,
+                std=None if is_b else self.std_final,
+                batch_size=cfg.CACHE_NPAR,
+                device=self.device
+            )
 
-        return repeater(self.accelerator.prepare(DataLoader(loader, batch_size=self.batch_size, num_workers=0)))
+            return repeater(DataLoader(loader, batch_size=self.batch_size, num_workers=0))
 
     def save(self, direction, n):
         if self.accelerator.is_local_main_process:
@@ -114,23 +114,28 @@ class IPFTrainer:
             torch.save(model.state_dict(), path)
 
     def ipf_step(self, direction, n):
-        loader = self.get_cache_loader(direction, n)
-        pbar = tqdm(range(cfg.NUM_ITER), disable=not self.accelerator.is_local_main_process)
-        for i in pbar:
-            # Refresh cache periodically
-            if i > 0 and i % cfg.CACHE_REFRESH_STRIDE == 0:
-                loader = self.get_cache_loader(direction, n)
-            
-            x, out, steps = next(loader)
+            loader = self.get_cache_loader(direction, n)
+            pbar = tqdm(range(cfg.NUM_ITER), disable=not self.accelerator.is_local_main_process)
+            for i in pbar:
+                # Refresh cache periodically
+                if i > 0 and i % cfg.CACHE_REFRESH_STRIDE == 0:
+                    del loader     # 1. On détruit explicitement la référence à l'ancien cache
+                    gc.collect()   # 2. On force Python à vider la RAM IMMÉDIATEMENT
+                    loader = self.get_cache_loader(direction, n)
+                
+                x, out, steps = next(loader)
+
+                x = x.to(self.device)
+                out = out.to(self.device)
+                steps = steps.to(self.device)
             
             # Forward pass
-            # Note: steps are flipped for network input vs langevin recording
-            t = self.T - steps.to(self.device)
+            t = self.T - steps
             pred = self.nets[direction](x, t) - x
             
             loss = F.mse_loss(pred, out)
             
-            # Optimization
+# Optimization
             self.opts[direction].zero_grad()
             self.accelerator.backward(loss)
             self.accelerator.clip_grad_norm_(self.nets[direction].parameters(), cfg.GRAD_CLIP)
@@ -140,8 +145,12 @@ class IPFTrainer:
             
             pbar.set_description(f"IPF {n} ({direction}) | Loss: {loss.item():.4f}")
 
-        self.save(direction, n)
-
+            # 4. On nettoie la RAM à la fin de l'étape avant de passer à la suivante (f -> b)
+            del loader
+            gc.collect()
+            
+            self.save(direction, n)
+    
     def train(self):
         print("Training Started...")
         for n in range(1, self.n_ipf + 1):
