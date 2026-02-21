@@ -64,7 +64,7 @@ class Langevin(nn.Module):
     def get_gaussian_grad(self, x):
         return -(x - self.mean_final.to(x.device)) / self.var_final.to(x.device)
 
-    def record_init_langevin(self, init_samples, ipf_it=0):
+    def record_init_langevin(self, init_samples):
         x = init_samples
         N = x.shape[0]
         x_tot = torch.zeros(N, self.num_steps, *self.d, device=x.device)
@@ -86,7 +86,7 @@ class Langevin(nn.Module):
 
         return x_tot, out, steps_expanded
 
-    def record_langevin_seq(self, net, init_samples):
+    def record_langevin_seq(self, net, init_samples, ipf_it=0):
         x = init_samples
         N = x.shape[0]
         steps = self.time.reshape((1, self.num_steps, 1)).repeat((N, 1, 1))
