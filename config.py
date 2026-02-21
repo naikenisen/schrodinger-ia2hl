@@ -1,27 +1,28 @@
 # --- Architecture & Data ---
 IMAGE_SIZE = 256
-NUM_CHANNELS = 128          # Augmenté (vs 64) pour plus de détails
+NUM_CHANNELS = 128
 NUM_RES_BLOCKS = 2
-ATTENTION_RESOLUTIONS = "16" # Ajout de 32 pour la cohérence globale
-DROPOUT = 0.0               # OK, ou 0.1 si vous avez peu de données (<1000 paires)
+ATTENTION_RESOLUTIONS = "16"
+DROPOUT = 0.0
 
 # --- Training ---
-BATCH_SIZE = 4             # Compromis sûr avec 128 channels. Tentez 64 si ça passe.
+BATCH_SIZE = 4
 LR = 1e-4
-NUM_ITER = 5000             # Suffisant par IPF step, permet de cycler plus vite
-N_IPF = 15                  # Très bien
+NUM_ITER = 1500
+N_IPF = 10
 GRAD_CLIP = 1.0
 
 # --- Cache & Langevin (Schrödinger Bridge) ---
-# C'est ici que la VRAM aide le plus :
-CACHE_NPAR = 4             # Génération plus rapide (parallélisme accru)
-NUM_CACHE_BATCHES = 10      # 40 * 64 = 2560 images en cache (beaucoup plus stable)
-CACHE_REFRESH_STRIDE = 100  # On rafraîchit moins souvent car le cache est plus gros
-NUM_WORKERS = 2              # Pour accélérer le chargement du cache
+CACHE_NPAR = 4
+NUM_CACHE_BATCHES = 10
+CACHE_REFRESH_STRIDE = 25
+NUM_WORKERS = 2
 
 # --- Diffusion Physics ---
-NUM_STEPS = 20              # Bon compromis qualité/vitesse
-GAMMA_MAX = 0.1             # OK pour I2SB
+NUM_STEPS = 10
+GAMMA_MAX = 0.1
 GAMMA_MIN = 1e-5
 GAMMA_SPACE = "linspace"
 EMA_RATE = 0.999
+
+device = "cuda"

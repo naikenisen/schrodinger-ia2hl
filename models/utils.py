@@ -11,7 +11,7 @@ def repeater(data_loader):
             yield data
 
 class EMAHelper:
-    def __init__(self, mu=0.999, device="cpu"):
+    def __init__(self, mu=0.999, device="cuda"):
         self.mu = mu
         self.shadow = {}
         self.device = device
@@ -86,7 +86,7 @@ class Langevin(nn.Module):
 
         return x_tot, out, steps_expanded
 
-    def record_langevin_seq(self, net, init_samples, ipf_it=0):
+    def record_langevin_seq(self, net, init_samples):
         x = init_samples
         N = x.shape[0]
         steps = self.time.reshape((1, self.num_steps, 1)).repeat((N, 1, 1))
@@ -114,7 +114,7 @@ class Langevin(nn.Module):
 
 class CacheLoader(Dataset):
     def __init__(self, fb, sample_net, dataloader_b, num_batches, langevin, n,
-                 mean, std, batch_size, dataloader_f, device='cpu'):
+                 mean, std, batch_size, dataloader_f, device='cuda'):
         super().__init__()
         shape = langevin.d
         
