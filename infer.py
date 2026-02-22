@@ -78,15 +78,12 @@ def get_model(device):
     channel_mult = (1, 1, 2, 2, 4, 4)
     attention_ds = [image_size // int(res) for res in cfg.ATTENTION_RESOLUTIONS.split(",")]
     net = UNetModel(
-    in_channels=cfg.CHANNELS,
-    model_channels=cfg.NUM_CHANNELS,
-    out_channels=cfg.CHANNELS,
-    num_res_blocks=cfg.NUM_RES_BLOCKS,
-    attention_resolutions=tuple(attention_ds),
-    dropout=cfg.DROPOUT,
-    channel_mult= channel_mult,
-    num_heads=cfg.NUM_HEADS,
-    num_heads_upsample=cfg.NUM_HEADS_UPSAMPLE)
+        model_channels=cfg.NUM_CHANNELS,
+        num_res_blocks=cfg.NUM_RES_BLOCKS,
+        attention_resolutions=tuple(attention_ds),
+        dropout=cfg.DROPOUT,
+        channel_mult=channel_mult
+    )
 
     return net.to(device)
 
@@ -146,12 +143,12 @@ def run_inference(ckpt_path, output_dir='./results'):
     gammas = np.concatenate([gamma_half, np.flip(gamma_half)])
     gammas = torch.tensor(gammas).to(device)
     
-    langevin = Langevin(cfg.NUM_STEPS, (cfg.CHANNELS, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE), gammas, device=device, mean_match=cfg.MEAN_MATCH)
+    langevin = Langevin(cfg.NUM_STEPS, (cfg.NUM_CHANNELS, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE), gammas, device=device)
 
     test_loader = get_test_dataloader()
     test_dataset = test_loader.dataset
-    paired_files = test_dataset.paired_files
-    cd30_dir = test_dataset.cd30_dir
+    paired_files = test_dataset.common_files
+    cd30_dir = test_dataset.source_dir
 
     print("Starting generation...")
     with torch.no_grad():
@@ -164,7 +161,7 @@ def run_inference(ckpt_path, output_dir='./results'):
             _, final_image = langevin.sample(net, batch)
             save_results(batch, final_image, output_dir, i, paired_files, cd30_dir)
 
-checkpoint = 'checkpoints/net_f_9.ckpt' # Exemple de chemin vers un checkpoint
+checkpoint = 'checkpoints/net_f_10.ckpt' # Exemple de chemin vers un checkpoint
 out_dir = 'results' # Exemple de répertoire de sortie
 
 run_inference(checkpoint, out_dir)
