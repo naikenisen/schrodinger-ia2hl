@@ -20,7 +20,7 @@ CACHE_REFRESH_STRIDE = 25
 NUM_WORKERS = 2
 
 # --- Diffusion Physics ---
-NUM_STEPS = 50
+NUM_STEPS = 30
 GAMMA_MAX = 0.1
 GAMMA_MIN = 1e-5
 GAMMA_SPACE = "linspace"
