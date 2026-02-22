@@ -9,7 +9,7 @@ from tqdm import tqdm
 from PIL import Image
 import config as cfg
 from models.unet import UNetModel
-from dataloader import dataloader, get_test_dataloader
+from dataloader import get_test_dataloader
 import matplotlib.pyplot as plt
 from torchvision.transforms.functional import to_pil_image
 
@@ -164,7 +164,7 @@ def run_inference(ckpt_path, output_dir='./results'):
             _, final_image = langevin.sample(net, batch)
             save_results(batch, final_image, output_dir, i, paired_files, cd30_dir)
 
-checkpoint = 'checkpoints/net_f_1.ckpt' # Exemple de chemin vers un checkpoint
+checkpoint = 'checkpoints/net_f_9.ckpt' # Exemple de chemin vers un checkpoint
 out_dir = 'results' # Exemple de répertoire de sortie
 
 run_inference(checkpoint, out_dir)
