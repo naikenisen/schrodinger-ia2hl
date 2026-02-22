@@ -1,8 +1,8 @@
 #!/bin/ksh 
 #$ -q gpu
-#$ -o result.out
+#$ -o result_infer.out
 #$ -j y
-#$ -N schrodinger
+#$ -N schrodinger_infer
 cd $WORKDIR
 cd /beegfs/data/work/imvia/in156281/diffusion_schrodinger_bridge
 source /beegfs/data/work/imvia/in156281/diffusion_schrodinger_bridge/venv/bin/activate
