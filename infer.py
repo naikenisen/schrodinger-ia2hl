@@ -134,7 +134,7 @@ def run_inference(ckpt_path, output_dir='./results'):
     gammas = np.concatenate([gamma_half, np.flip(gamma_half)])
     gammas = torch.tensor(gammas).to(device)
     
-    langevin = Langevin(cfg.NUM_STEPS, (cfg.CHANNELS, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE), gammas, device=device, mean_match=cfg.MEAN_MATCH)
+    langevin = Langevin(cfg.NUM_STEPS, (cfg.CHANNELS, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE), gammas, device=device, mean_match=True)
 
     test_loader = get_test_dataloader()
     test_dataset = test_loader.dataset
