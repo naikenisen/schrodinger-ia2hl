@@ -85,7 +85,8 @@ def save_results(input_batch, output_batch, output_dir, batch_idx, batch_fnames=
     os.makedirs(output_dir, exist_ok=True)
     batch_size = output_batch.shape[0]
     for i in range(batch_size):
-        cd30_virtual_img = to_pil_image(output_batch[i].cpu())
+        cd30_tensor = output_batch[i].cpu().clamp(0, 1)
+        cd30_virtual_img = to_pil_image(cd30_tensor)
         if batch_fnames is not None:
             base, ext = os.path.splitext(batch_fnames[i])
             out_name = os.path.join(output_dir, f"{base}_VIRTUAL.png")
@@ -118,7 +119,11 @@ def run_inference(ckpt_path, output_dir='./results'):
             batch_fnames = data[1] # <--- Liste des noms de fichiers de ce batch
             
             _, final_image = langevin.sample(net, batch)
-            
+            # --- DEBUG ---
+            print(f"Min: {final_image.min().item():.4f} | Max: {final_image.max().item():.4f}")
+            if torch.isnan(final_image).any():
+                print("⚠️ ATTENTION : Le modèle a généré des NaN (Not a Number) !")
+            # -------------
             # On passe batch_fnames et TEST_IHC directement à save_results
             save_results(batch, final_image, output_dir, i, batch_fnames, TEST_IHC)
 
