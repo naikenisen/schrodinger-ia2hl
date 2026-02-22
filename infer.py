@@ -66,27 +66,15 @@ class Langevin(torch.nn.Module):
         return x_tot, x
 
 def get_model(device):
-    """Construit deux réseaux UNet :
-    - net_f : réseau "forward"
-    - net_b : réseau "backward"
 
-    Concept :
-    - le Schrödinger Bridge entraîne deux directions (aller/retour)
-    - les deux réseaux apprennent à se "répondre" via IPF.
-    """
-    image_size = cfg.IMAGE_SIZE
-    channel_mult = (1, 1, 2, 2, 4, 4)
-    attention_ds = [image_size // int(res) for res in cfg.ATTENTION_RESOLUTIONS.split(",")]
+    att_ds = tuple(256 // int(res) for res in cfg.ATTENTION_RESOLUTIONS.split(","))
     net = UNetModel(
-    in_channels=cfg.CHANNELS,
-    model_channels=cfg.NUM_CHANNELS,
-    out_channels=cfg.CHANNELS,
-    num_res_blocks=cfg.NUM_RES_BLOCKS,
-    attention_resolutions=tuple(attention_ds),
-    dropout=cfg.DROPOUT,
-    channel_mult= channel_mult,
-    num_heads=cfg.NUM_HEADS,
-    num_heads_upsample=cfg.NUM_HEADS_UPSAMPLE)
+            model_channels=cfg.NUM_CHANNELS,
+            num_res_blocks=cfg.NUM_RES_BLOCKS,
+            attention_resolutions=att_ds,
+            dropout=cfg.DROPOUT,
+            channel_mult=(1, 1, 2, 2, 4, 4)
+        )
 
     return net.to(device)
 
