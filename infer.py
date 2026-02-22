@@ -80,53 +80,18 @@ def get_model(device):
 
 def save_results(input_batch, output_batch, output_dir, batch_idx, batch_fnames=None, cd30_dir=None):
     """
-    Sauvegarde HES (input), CD30 virtuel (output), CD30 réel (paired) côte à côte.
+    Exporte uniquement les images virtuelles dans le dossier results, nommées selon l'image IHC originale + _VIRTUAL.png
     """
     os.makedirs(output_dir, exist_ok=True)
-    batch_size = input_batch.shape[0]
-    
+    batch_size = output_batch.shape[0]
     for i in range(batch_size):
-        hes_img = to_pil_image(input_batch[i].cpu())
         cd30_virtual_img = to_pil_image(output_batch[i].cpu())
-        cd30_real_img = None
-        
-        # Récupération de l'image réelle grâce au nom de fichier du batch
-        if batch_fnames is not None and cd30_dir is not None:
-            fname = batch_fnames[i]
-            cd30_real_path = os.path.join(cd30_dir, fname)
-            if os.path.exists(cd30_real_path):
-                cd30_real_img = Image.open(cd30_real_path).convert('RGB')
-
-        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-        axes[0].imshow(hes_img)
-        axes[0].set_title('HES')
-        axes[0].axis('off')
-        
-        axes[1].imshow(cd30_virtual_img)
-        axes[1].set_title('CD30 virtuel')
-        axes[1].axis('off')
-        
-        if cd30_real_img is None:
-            arr = np.zeros((hes_img.size[1], hes_img.size[0], 3), dtype=np.uint8)
-            axes[2].set_title('CD30 réel (introuvable)')
-        else:
-            arr = np.array(cd30_real_img)
-            axes[2].set_title('CD30 réel')
-            
-        axes[2].imshow(arr)
-        axes[2].axis('off')
-
-        plt.tight_layout()
-        
-        # Bonus : On utilise le VRAI nom du fichier pour sauvegarder l'image finale
-        # C'est beaucoup plus facile pour retrouver tes résultats ensuite !
         if batch_fnames is not None:
-            out_name = os.path.join(output_dir, f"result_{batch_fnames[i]}")
+            base, ext = os.path.splitext(batch_fnames[i])
+            out_name = os.path.join(output_dir, f"{base}_VIRTUAL.png")
         else:
-            out_name = os.path.join(output_dir, f"pred_{batch_idx}_{i}.png")
-            
-        plt.savefig(out_name)
-        plt.close(fig)
+            out_name = os.path.join(output_dir, f"pred_{batch_idx}_{i}_VIRTUAL.png")
+        cd30_virtual_img.save(out_name)
 
 def run_inference(ckpt_path, output_dir='./results'):
     device = torch.device("cpu")
