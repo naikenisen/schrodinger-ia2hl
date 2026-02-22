@@ -9,7 +9,7 @@ from tqdm import tqdm
 from PIL import Image
 import config as cfg
 from models.unet import UNetModel
-from dataloader import get_test_dataloader
+from dataloader import get_test_dataloader, TEST_IHC
 import matplotlib.pyplot as plt
 from torchvision.transforms.functional import to_pil_image
 
@@ -78,46 +78,53 @@ def get_model(device):
 
     return net.to(device)
 
-def save_results(input_batch, output_batch, output_dir, batch_idx, paired_files=None, cd30_dir=None):
+def save_results(input_batch, output_batch, output_dir, batch_idx, batch_fnames=None, cd30_dir=None):
     """
-    Sauvegarde HES (input), CD30 virtuel (output), CD30 réel (paired) côte à côte avec légende sous chaque image.
+    Sauvegarde HES (input), CD30 virtuel (output), CD30 réel (paired) côte à côte.
     """
     os.makedirs(output_dir, exist_ok=True)
     batch_size = input_batch.shape[0]
+    
     for i in range(batch_size):
         hes_img = to_pil_image(input_batch[i].cpu())
         cd30_virtual_img = to_pil_image(output_batch[i].cpu())
         cd30_real_img = None
-        if paired_files is not None and cd30_dir is not None:
-            fname = paired_files[batch_idx * batch_size + i]
+        
+        # Récupération de l'image réelle grâce au nom de fichier du batch
+        if batch_fnames is not None and cd30_dir is not None:
+            fname = batch_fnames[i]
             cd30_real_path = os.path.join(cd30_dir, fname)
-            cd30_real_img = Image.open(cd30_real_path).convert('RGB')
+            if os.path.exists(cd30_real_path):
+                cd30_real_img = Image.open(cd30_real_path).convert('RGB')
 
         fig, axes = plt.subplots(1, 3, figsize=(12, 4))
         axes[0].imshow(hes_img)
         axes[0].set_title('HES')
         axes[0].axis('off')
+        
         axes[1].imshow(cd30_virtual_img)
         axes[1].set_title('CD30 virtuel')
         axes[1].axis('off')
+        
         if cd30_real_img is None:
             arr = np.zeros((hes_img.size[1], hes_img.size[0], 3), dtype=np.uint8)
+            axes[2].set_title('CD30 réel (introuvable)')
         else:
             arr = np.array(cd30_real_img)
-            if arr is None or arr.dtype != np.uint8:
-                arr = np.zeros((hes_img.size[1], hes_img.size[0], 3), dtype=np.uint8)
-        try:
-            axes[2].imshow(arr)
-        except Exception as e:
-            axes[2].imshow(np.zeros((hes_img.size[1], hes_img.size[0], 3), dtype=np.uint8))
-            axes[2].set_title(f'CD30 réel (erreur)')
-        axes[2].set_title('CD30 réel')
+            axes[2].set_title('CD30 réel')
+            
+        axes[2].imshow(arr)
         axes[2].axis('off')
 
-        for ax in axes:
-            ax.set_xlabel('')
         plt.tight_layout()
-        out_name = f"{output_dir}/pred_{batch_idx}_{i}.png"
+        
+        # Bonus : On utilise le VRAI nom du fichier pour sauvegarder l'image finale
+        # C'est beaucoup plus facile pour retrouver tes résultats ensuite !
+        if batch_fnames is not None:
+            out_name = os.path.join(output_dir, f"result_{batch_fnames[i]}")
+        else:
+            out_name = os.path.join(output_dir, f"pred_{batch_idx}_{i}.png")
+            
         plt.savefig(out_name)
         plt.close(fig)
 
@@ -137,20 +144,18 @@ def run_inference(ckpt_path, output_dir='./results'):
     langevin = Langevin(cfg.NUM_STEPS, (cfg.CHANNELS, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE), gammas, device=device, mean_match=True)
 
     test_loader = get_test_dataloader()
-    test_dataset = test_loader.dataset
-    paired_files = test_dataset.paired_files
-    cd30_dir = test_dataset.cd30_dir
 
     print("Starting generation...")
     with torch.no_grad():
         for i, data in tqdm(enumerate(test_loader)):
-            # data = (img, fname) par batch
-            if isinstance(data, tuple) or isinstance(data, list):
-                batch = data[0].to(device)
-            else:
-                batch = data.to(device)
+            # Ton dataloader renvoie (image, filename)
+            batch = data[0].to(device)
+            batch_fnames = data[1] # <--- Liste des noms de fichiers de ce batch
+            
             _, final_image = langevin.sample(net, batch)
-            save_results(batch, final_image, output_dir, i, paired_files, cd30_dir)
+            
+            # On passe batch_fnames et TEST_IHC directement à save_results
+            save_results(batch, final_image, output_dir, i, batch_fnames, TEST_IHC)
 
 checkpoint = 'checkpoints/net_f_10.ckpt' # Exemple de chemin vers un checkpoint
 out_dir = 'results' # Exemple de répertoire de sortie
